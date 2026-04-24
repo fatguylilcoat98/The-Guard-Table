@@ -128,7 +128,10 @@ def guard_endpoint():
     Takes raw anger and fear, returns legal leverage.
     """
     try:
-        data = request.get_json()
+        logger.info(f"Request received - Content-Type: {request.content_type}")
+        logger.info(f"Raw data: {request.get_data(as_text=True)[:200]}")
+        data = request.get_json(force=True, silent=True)
+        logger.info(f"Parsed data: {data}")
         category = data.get('category', '')
         state = data.get('state', 'California')
         rant = data.get('rant', '')
