@@ -222,6 +222,9 @@ Always cite real law.
 Always be specific to their state.
 
 Return as clean JSON only:
+
+CRITICAL: Return raw JSON only. No markdown. No code fences. No backticks. Just the JSON object starting with { and ending with }.
+
 {
   "wait": ["line1", "line2", "line3"],
   "leverage": "full message text",
@@ -248,7 +251,13 @@ Situation: {rant}"""
             ]
         )
 
+        # Strip markdown code fences if present
         response_text = response.content[0].text.strip()
+        if response_text.startswith('```'):
+            response_text = response_text.split('```')[1]
+            if response_text.startswith('json'):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
 
         # Parse JSON response
         try:
