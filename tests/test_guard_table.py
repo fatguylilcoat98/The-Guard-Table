@@ -5,11 +5,23 @@ Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
 Truth · Safety · We Got Your Back
 """
 
+import os
 import requests
 import json
 import time
 
 BASE = "https://the-guard-table.onrender.com"
+
+# Optional admin token: when set, it's attached to every /api/guard request
+# so the test suite can bypass the 5/month free-tier rate limit.
+# Never commit the token — export ADMIN_TOKEN=... in the shell before running.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
+def guard_post(payload, timeout=45):
+    """POST to /api/guard, auto-injecting admin_token when available."""
+    if ADMIN_TOKEN and isinstance(payload, dict) and "admin_token" not in payload:
+        payload = {**payload, "admin_token": ADMIN_TOKEN}
+    return requests.post(f"{BASE}/api/guard", json=payload, timeout=timeout)
 
 PASS = "✅"
 FAIL = "❌"
@@ -27,7 +39,8 @@ def run(name, fn):
         results.append((outcome, name))
     except Exception as e:
         print(f"{FAIL} {name}")
-        print(f"   EXCEPTION: {e}")
+        msg = str(e) or repr(e) or type(e).__name__
+        print(f"   EXCEPTION: {msg}")
         results.append((False, name))
 
 # ── INFRASTRUCTURE ──────────────────────────────────────────────
@@ -61,11 +74,11 @@ def test_frontend_loads():
 # ── HAPPY PATH ──────────────────────────────────────────────────
 
 def test_basic_employment():
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "job",
         "state": "California",
         "rant": "My boss fired me without any warning after I reported a safety violation to HR. I had a clean record for 3 years."
-    }, timeout=45)
+    })
     assert r.status_code == 200
     data = r.json()
     has_rights = 'rights' in data or 'what_they_did' in data
@@ -76,11 +89,11 @@ def test_basic_employment():
     return ok, f"Keys returned: {keys}"
 
 def test_basic_housing():
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "housing",
         "state": "Texas",
         "rant": "My landlord has not fixed my broken heater for 6 weeks even though it is winter and I have kids. He keeps saying he will get to it."
-    }, timeout=45)
+    })
     assert r.status_code == 200
     data = r.json()
     ok = 'leverage' in data and 'guard_steps' in data
@@ -90,11 +103,11 @@ def test_all_categories():
     categories = ['housing', 'money', 'job', 'benefits', 'family', 'other']
     failed = []
     for cat in categories:
-        r = requests.post(f"{BASE}/api/guard", json={
+        r = guard_post({
             "category": cat,
             "state": "California",
             "rant": f"I am having a serious problem with my {cat} situation and I need help understanding my rights."
-        }, timeout=45)
+        })
         if r.status_code != 200 or 'leverage' not in r.json():
             failed.append(cat)
         time.sleep(1)  # be gentle
@@ -103,11 +116,11 @@ def test_all_categories():
 
 def test_response_structure():
     """Verify all expected JSON fields come back"""
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "money",
         "state": "New York",
         "rant": "A debt collector called me at work after I told them to stop. They also called at 6am."
-    }, timeout=45)
+    })
     assert r.status_code == 200
     data = r.json()
     expected_keys = ['leverage', 'guard_steps']
@@ -118,11 +131,11 @@ def test_response_structure():
 
 def test_remaining_responses_counted():
     """Make sure the counter is decrementing"""
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "job",
         "state": "Florida",
         "rant": "My employer has not paid me for 2 weeks and keeps saying the checks are delayed."
-    }, timeout=45)
+    })
     assert r.status_code == 200
     data = r.json()
     remaining = data.get('remaining_responses')
@@ -132,7 +145,7 @@ def test_remaining_responses_counted():
 # ── EDGE CASES ──────────────────────────────────────────────────
 
 def test_empty_rant_rejected():
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "job",
         "state": "California",
         "rant": ""
@@ -141,7 +154,7 @@ def test_empty_rant_rejected():
     return ok, f"Status: {r.status_code} (expected 400)"
 
 def test_empty_rant_whitespace_rejected():
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "job",
         "state": "California",
         "rant": "     "
@@ -151,25 +164,25 @@ def test_empty_rant_whitespace_rejected():
 
 def test_missing_category_still_works():
     """Category is optional — should still return a response"""
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "state": "Oregon",
         "rant": "My employer refused to give me any breaks during an 10 hour shift."
-    }, timeout=45)
+    })
     ok = r.status_code == 200 and 'leverage' in r.json()
     return ok, f"Status: {r.status_code}"
 
 def test_missing_state_uses_default():
     """State defaults to California if not provided"""
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "housing",
         "rant": "My landlord entered my apartment without notice 3 times this month."
-    }, timeout=45)
+    })
     ok = r.status_code == 200 and 'leverage' in r.json()
     return ok, f"Status: {r.status_code}"
 
 def test_very_long_rant():
     long_rant = "My boss has been treating me unfairly. " * 100
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "job",
         "state": "California",
         "rant": long_rant
@@ -190,11 +203,11 @@ def test_no_json_body():
 
 def test_rate_limit_headers_present():
     """Confirm response includes remaining count for free users"""
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "job",
         "state": "California",
         "rant": "Testing rate limit tracking — my employer owes me overtime pay."
-    }, timeout=45)
+    })
     assert r.status_code == 200
     data = r.json()
     has_remaining = 'remaining_responses' in data
@@ -204,11 +217,11 @@ def test_rate_limit_headers_present():
 
 def test_response_not_hedging():
     """The Guard Table should give direct answers, not wishy-washy ones"""
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "job",
         "state": "California",
         "rant": "I was fired the day after I told my boss I was pregnant. No other reason given."
-    }, timeout=45)
+    })
     assert r.status_code == 200
     data = r.json()
     leverage = data.get('leverage', '').lower()
@@ -219,11 +232,11 @@ def test_response_not_hedging():
 
 def test_guard_steps_are_actionable():
     """Steps should be a list with at least 2 items"""
-    r = requests.post(f"{BASE}/api/guard", json={
+    r = guard_post({
         "category": "housing",
         "state": "California",
         "rant": "My landlord has not returned my security deposit after 45 days and is ignoring my calls."
-    }, timeout=45)
+    })
     assert r.status_code == 200
     data = r.json()
     steps = data.get('guard_steps', [])
