@@ -1,0 +1,24 @@
+{
+  "short_name": "Guard Table",
+  "name": "The Guard Table - The Good Neighbor Guard",
+  "description": "Every company has a system. Now so do you. Turn your raw anger and fear into legal leverage.",
+  "icons": [
+    {
+      "src": "app-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#0066cc",
+  "background_color": "#000000",
+  "orientation": "portrait"
+}
