@@ -198,6 +198,18 @@ const ResultsScreen = ({ results, onStartNew }) => {
             <div className="results-footer">
               The Good Neighbor Guard — Truth · Safety · We Got Your Back
             </div>
+            <div style={{
+              backgroundColor: '#1a1a1a',
+              border: '1px solid #333',
+              borderRadius: '8px',
+              padding: '12px',
+              margin: '16px 0 8px 0',
+              fontSize: '12px',
+              color: '#8899aa',
+              lineHeight: '1.4'
+            }}>
+              ⚠️ <strong>Important:</strong> The Guard Table uses AI to generate responses based on general legal patterns. Information provided may not reflect the most current laws or apply perfectly to your specific situation. Do not rely solely on this information for legal decisions. Free legal aid is available in most areas — search "[your county] legal aid" to find help near you. In an emergency, contact 211 for local resources.
+            </div>
           </>
         )}
       </div>

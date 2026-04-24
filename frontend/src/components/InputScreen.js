@@ -114,6 +114,16 @@ const InputScreen = ({ category, onSubmit, defaultState }) => {
           ))}
         </select>
 
+        <div style={{
+          fontSize: '12px',
+          color: '#8899aa',
+          textAlign: 'center',
+          margin: '16px 20px 8px 20px',
+          lineHeight: '1.4'
+        }}>
+          The Guard Table provides general information to help you understand your situation and communicate more effectively. It is not a lawyer and does not provide legal advice. Laws vary by location and situation. Always verify important information with a licensed attorney or legal aid organization before taking action.
+        </div>
+
         <button
           type="submit"
           className="btn btn-primary"
