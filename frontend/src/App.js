@@ -140,21 +140,16 @@ function App() {
 
   return (
     <div className="App">
-      {/* Admin Status Box */}
+      {/* Admin Status Text */}
       {adminToken && (
         <div style={{
           position: 'fixed',
           top: '10px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          backgroundColor: '#FFD700',
-          color: '#000',
-          padding: '4px 12px',
+          right: '10px',
+          color: '#FFD700',
           fontSize: '12px',
           fontWeight: 'bold',
-          borderRadius: '4px',
-          zIndex: 10000,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+          zIndex: 10000
         }}>
           admin access
         </div>
