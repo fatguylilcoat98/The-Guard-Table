@@ -17,6 +17,7 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [userState, setUserState] = useState('California');
   const [results, setResults] = useState(null);
+  const [adminToken, setAdminToken] = useState(localStorage.getItem('guardTableAdminToken') || '');
 
   const handleGetHelp = () => {
     setCurrentScreen('category');
@@ -41,7 +42,8 @@ function App() {
         body: JSON.stringify({
           category: selectedCategory,
           state: state,
-          rant: input
+          rant: input,
+          ...(adminToken && { admin_token: adminToken })
         }),
       });
 
@@ -64,6 +66,15 @@ function App() {
     setCurrentScreen('landing');
     setSelectedCategory('');
     setResults(null);
+  };
+
+  const handleAdminTokenChange = (token) => {
+    setAdminToken(token);
+    if (token) {
+      localStorage.setItem('guardTableAdminToken', token);
+    } else {
+      localStorage.removeItem('guardTableAdminToken');
+    }
   };
 
   const renderScreen = () => {
@@ -91,6 +102,43 @@ function App() {
   return (
     <div className="App">
       {renderScreen()}
+
+      {/* Admin Panel */}
+      <div style={{
+        position: 'fixed',
+        bottom: '10px',
+        right: '10px',
+        backgroundColor: '#1a1a1a',
+        border: '1px solid #333',
+        borderRadius: '8px',
+        padding: '8px 12px',
+        fontSize: '12px',
+        color: '#8899aa',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        zIndex: 1000
+      }}>
+        <span>Admin:</span>
+        <input
+          type="password"
+          placeholder="Token"
+          value={adminToken}
+          onChange={(e) => handleAdminTokenChange(e.target.value)}
+          style={{
+            background: '#000',
+            border: '1px solid #333',
+            borderRadius: '4px',
+            padding: '4px 8px',
+            color: '#fff',
+            fontSize: '12px',
+            width: '100px'
+          }}
+        />
+        {adminToken && (
+          <span style={{ color: '#00ff00', fontSize: '10px' }}>✓ Active</span>
+        )}
+      </div>
     </div>
   );
 }
