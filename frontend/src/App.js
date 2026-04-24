@@ -16,7 +16,6 @@ function App() {
   const [currentScreen, setCurrentScreen] = useState('landing');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [userState, setUserState] = useState('California');
-  const [userInput, setUserInput] = useState('');
   const [results, setResults] = useState(null);
 
   const handleGetHelp = () => {
@@ -29,7 +28,6 @@ function App() {
   };
 
   const handleSubmitInput = async (input, state, photos) => {
-    setUserInput(input);
     setUserState(state);
     setCurrentScreen('results');
 
@@ -65,7 +63,6 @@ function App() {
   const handleStartNew = () => {
     setCurrentScreen('landing');
     setSelectedCategory('');
-    setUserInput('');
     setResults(null);
   };
 
