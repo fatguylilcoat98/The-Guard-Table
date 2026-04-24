@@ -13,6 +13,7 @@ import anthropic
 import httpx
 import json
 import logging
+import traceback
 from datetime import datetime
 
 # Configure logging
@@ -262,6 +263,7 @@ Situation: {rant}"""
 
     except Exception as e:
         logger.error(f"Error in guard_endpoint: {str(e)}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': 'Something went wrong — try again'}), 500
 
 @app.route('/health', methods=['GET'])
@@ -271,6 +273,15 @@ def health_check():
         'status': 'healthy',
         'service': 'The Guard Table',
         'version': '1.0.0'
+    })
+
+@app.route('/api/test', methods=['GET'])
+def test():
+    """Test endpoint to check API key and client status"""
+    return jsonify({
+        'api_key_set': bool(anthropic_api_key),
+        'client_ready': bool(client),
+        'key_preview': anthropic_api_key[:8] + '...' if anthropic_api_key else 'NOT SET'
     })
 
 @app.route('/', methods=['GET'])
