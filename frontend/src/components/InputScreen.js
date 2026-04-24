@@ -7,8 +7,8 @@
 
 import React, { useState } from 'react';
 
-const InputScreen = ({ category, onSubmit, defaultState }) => {
-  const [input, setInput] = useState('');
+const InputScreen = ({ category, onSubmit, defaultState, defaultInput = '', onBack }) => {
+  const [input, setInput] = useState(defaultInput);
   const [state, setState] = useState(defaultState);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -74,6 +74,22 @@ const InputScreen = ({ category, onSubmit, defaultState }) => {
   return (
     <div className="input-screen">
       <div className="input-header">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#8899aa',
+              fontSize: '14px',
+              cursor: 'pointer',
+              marginBottom: '8px'
+            }}
+          >
+            ← Back
+          </button>
+        )}
         <div className="input-category">{categoryNames[category] || category}</div>
       </div>
 

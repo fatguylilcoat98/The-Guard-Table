@@ -16,7 +16,9 @@ function App() {
   const [currentScreen, setCurrentScreen] = useState('landing');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [userState, setUserState] = useState('California');
+  const [currentInput, setCurrentInput] = useState('');
   const [results, setResults] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [adminToken, setAdminToken] = useState(localStorage.getItem('guardTableAdminToken') || '');
   const [adminPanelCollapsed, setAdminPanelCollapsed] = useState(!!localStorage.getItem('guardTableAdminToken'));
 
@@ -31,6 +33,8 @@ function App() {
 
   const handleSubmitInput = async (input, state, photos) => {
     setUserState(state);
+    setCurrentInput(input);
+    setIsLoading(true);
     setCurrentScreen('results');
 
     // Call the backend API
@@ -60,13 +64,26 @@ function App() {
       setResults({
         error: "Something went wrong — try again"
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleStartNew = () => {
     setCurrentScreen('landing');
     setSelectedCategory('');
+    setCurrentInput('');
     setResults(null);
+  };
+
+  const handleBackToInput = () => {
+    setCurrentScreen('input');
+    setResults(null);
+  };
+
+  const handleBackToCategory = () => {
+    setCurrentScreen('category');
+    setCurrentInput('');
   };
 
   const handleAdminTokenChange = (token) => {
@@ -104,12 +121,17 @@ function App() {
           category={selectedCategory}
           onSubmit={handleSubmitInput}
           defaultState={userState}
+          defaultInput={currentInput}
+          onBack={handleBackToCategory}
         />;
       case 'results':
         return <ResultsScreen
           results={results}
           category={selectedCategory}
+          isLoading={isLoading}
+          adminToken={adminToken}
           onStartNew={handleStartNew}
+          onBack={handleBackToInput}
         />;
       default:
         return <LandingScreen onGetHelp={handleGetHelp} />;

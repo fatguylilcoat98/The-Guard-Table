@@ -47,13 +47,33 @@ const FAQ_DATA = {
   ]
 };
 
-const ResultsScreen = ({ results, category, onStartNew }) => {
+const ResultsScreen = ({ results, category, isLoading, adminToken, onStartNew, onBack }) => {
   const [showWait, setShowWait] = useState(false);
   const [showLeverage, setShowLeverage] = useState(false);
   const [showGuard, setShowGuard] = useState(false);
   const [typingMessage, setTypingMessage] = useState('');
   const [copyButtonText, setCopyButtonText] = useState('Copy to clipboard');
   const [expandedFAQ, setExpandedFAQ] = useState({});
+  const [adjustingTone, setAdjustingTone] = useState('');
+  const [adjustedLeverage, setAdjustedLeverage] = useState('');
+  const [loadingText, setLoadingText] = useState('Reading your situation...');
+
+  useEffect(() => {
+    // Loading text cycling
+    if (isLoading) {
+      const loadingMessages = [
+        'Reading your situation...',
+        'Finding the right law...',
+        'Building your response...'
+      ];
+      let index = 0;
+      const interval = setInterval(() => {
+        index = (index + 1) % loadingMessages.length;
+        setLoadingText(loadingMessages[index]);
+      }, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isLoading]);
 
   useEffect(() => {
     if (!results || results.error) return;
@@ -95,15 +115,16 @@ const ResultsScreen = ({ results, category, onStartNew }) => {
   };
 
   const handleCopy = async () => {
-    if (results.leverage) {
+    const textToCopy = adjustedLeverage || results.leverage;
+    if (textToCopy) {
       try {
-        await navigator.clipboard.writeText(results.leverage);
+        await navigator.clipboard.writeText(textToCopy);
         setCopyButtonText('✓ Copied');
         setTimeout(() => setCopyButtonText('Copy to clipboard'), 2000);
       } catch (err) {
         // Fallback for older browsers
         const textArea = document.createElement('textarea');
-        textArea.value = results.leverage;
+        textArea.value = textToCopy;
         document.body.appendChild(textArea);
         textArea.select();
         document.execCommand('copy');
@@ -135,17 +156,81 @@ const ResultsScreen = ({ results, category, onStartNew }) => {
     }));
   };
 
-  if (!results) {
+  const adjustTone = async (direction) => {
+    if (!results?.leverage) return;
+
+    setAdjustingTone(direction);
+
+    try {
+      const instruction = direction === 'stronger'
+        ? 'Rewrite this message with more direct, firm language. More assertive.'
+        : 'Rewrite this message with more professional, measured language. Less confrontational.';
+
+      const response = await fetch('/api/guard', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          category: category,
+          state: 'California', // Use stored state if available
+          rant: `${instruction}\n\nOriginal message:\n${results.leverage}`,
+          ...(adminToken && { admin_token: adminToken })
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.leverage) {
+          setAdjustedLeverage(data.leverage);
+        }
+      }
+    } catch (error) {
+      console.error('Tone adjustment failed:', error);
+    } finally {
+      setAdjustingTone('');
+    }
+  };
+
+  if (isLoading || !results) {
     return (
       <div className="results-screen">
         <div style={{
           background: '#0a0a0a',
           minHeight: '100vh',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center'
+          justifyContent: 'center',
+          position: 'relative'
         }}>
-          {/* Two second pause - just dark screen */}
+          {onBack && (
+            <button
+              onClick={onBack}
+              style={{
+                position: 'absolute',
+                top: '20px',
+                left: '20px',
+                background: 'transparent',
+                border: 'none',
+                color: '#8899aa',
+                fontSize: '14px',
+                cursor: 'pointer'
+              }}
+            >
+              ← Back
+            </button>
+          )}
+          {isLoading && (
+            <div style={{
+              fontSize: '18px',
+              color: '#0066ff',
+              fontWeight: 'bold',
+              animation: 'pulse 1.5s infinite'
+            }}>
+              {loadingText}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -168,6 +253,24 @@ const ResultsScreen = ({ results, category, onStartNew }) => {
 
   return (
     <div className="results-screen">
+      {onBack && (
+        <button
+          onClick={onBack}
+          style={{
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            background: 'transparent',
+            border: 'none',
+            color: '#8899aa',
+            fontSize: '14px',
+            cursor: 'pointer',
+            zIndex: 1000
+          }}
+        >
+          ← Back
+        </button>
+      )}
       <div className="results-container">
         {/* WAIT BLOCK */}
         {showWait && (
@@ -190,7 +293,7 @@ const ResultsScreen = ({ results, category, onStartNew }) => {
               Here's what you send. Right now.
             </div>
             <div className="leverage-message">
-              {typingMessage}
+              {adjustedLeverage || typingMessage}
             </div>
             <div className="leverage-actions">
               <button
@@ -199,8 +302,20 @@ const ResultsScreen = ({ results, category, onStartNew }) => {
               >
                 {copyButtonText}
               </button>
-              <button className="adjust-btn">Make it stronger</button>
-              <button className="adjust-btn">Make it softer</button>
+              <button
+                className="adjust-btn"
+                onClick={() => adjustTone('stronger')}
+                disabled={adjustingTone !== ''}
+              >
+                {adjustingTone === 'stronger' ? 'Adjusting...' : 'Make it stronger'}
+              </button>
+              <button
+                className="adjust-btn"
+                onClick={() => adjustTone('softer')}
+                disabled={adjustingTone !== ''}
+              >
+                {adjustingTone === 'softer' ? 'Adjusting...' : 'Make it softer'}
+              </button>
             </div>
             <div className="send-note">
               Send this by email or text. Keep the receipt. Do not call.
