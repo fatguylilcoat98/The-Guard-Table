@@ -18,6 +18,7 @@ function App() {
   const [userState, setUserState] = useState('California');
   const [results, setResults] = useState(null);
   const [adminToken, setAdminToken] = useState(localStorage.getItem('guardTableAdminToken') || '');
+  const [adminPanelCollapsed, setAdminPanelCollapsed] = useState(!!localStorage.getItem('guardTableAdminToken'));
 
   const handleGetHelp = () => {
     setCurrentScreen('category');
@@ -74,6 +75,21 @@ function App() {
       localStorage.setItem('guardTableAdminToken', token);
     } else {
       localStorage.removeItem('guardTableAdminToken');
+      setAdminPanelCollapsed(false);
+    }
+  };
+
+  const handleAdminTokenSubmit = () => {
+    if (adminToken.trim()) {
+      setAdminPanelCollapsed(true);
+    }
+  };
+
+  const handleAdminPanelClick = () => {
+    if (adminPanelCollapsed) {
+      setAdminToken('');
+      localStorage.removeItem('guardTableAdminToken');
+      setAdminPanelCollapsed(false);
     }
   };
 
@@ -110,24 +126,24 @@ function App() {
         right: '10px',
         backgroundColor: '#1a1a1a',
         border: '1px solid #333',
-        borderRadius: adminToken ? '50%' : '8px',
-        padding: adminToken ? '8px' : '8px 12px',
+        borderRadius: adminPanelCollapsed ? '50%' : '8px',
+        padding: adminPanelCollapsed ? '8px' : '8px 12px',
         fontSize: '12px',
         color: '#8899aa',
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
         zIndex: 1000,
-        cursor: adminToken ? 'pointer' : 'default',
+        cursor: adminPanelCollapsed ? 'pointer' : 'default',
         transition: 'all 0.3s ease',
-        width: adminToken ? '32px' : 'auto',
-        height: adminToken ? '32px' : 'auto',
+        width: adminPanelCollapsed ? '32px' : 'auto',
+        height: adminPanelCollapsed ? '32px' : 'auto',
         justifyContent: 'center'
       }}
-      onClick={() => adminToken && handleAdminTokenChange('')}
-      title={adminToken ? 'Click to remove admin access' : 'Enter admin token'}
+      onClick={handleAdminPanelClick}
+      title={adminPanelCollapsed ? 'Click to remove admin access' : 'Enter admin token'}
       >
-        {adminToken ? (
+        {adminPanelCollapsed ? (
           <span style={{ color: '#00ff00', fontSize: '14px' }}>⚡</span>
         ) : (
           <>
@@ -137,6 +153,8 @@ function App() {
               placeholder="Token"
               value={adminToken}
               onChange={(e) => handleAdminTokenChange(e.target.value)}
+              onBlur={handleAdminTokenSubmit}
+              onKeyDown={(e) => e.key === 'Enter' && handleAdminTokenSubmit()}
               style={{
                 background: '#000',
                 border: '1px solid #333',
