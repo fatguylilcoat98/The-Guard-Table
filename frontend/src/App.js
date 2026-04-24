@@ -33,7 +33,7 @@ function App() {
 
     // Call the backend API
     try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/guard`, {
+      const response = await fetch('/api/guard', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
