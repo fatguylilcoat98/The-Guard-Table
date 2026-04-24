@@ -227,12 +227,16 @@ Situation: {rant}"""
 
         logger.info(f"Processing request for {state} - {category}")
 
-        # Call Claude API
+        # Call Claude API with prompt caching
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=2000,
             temperature=0.3,
-            system=system_prompt,
+            system=[{
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }],
             messages=[
                 {
                     "role": "user",
@@ -252,6 +256,45 @@ Situation: {rant}"""
         # Parse JSON response
         try:
             result = json.loads(response_text)
+
+            # Two-model verification layer with Haiku 4.5
+            try:
+                # Verification 1: Check law citations
+                citation_check = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=200,
+                    temperature=0.1,
+                    messages=[{
+                        "role": "user",
+                        "content": f"You are a legal citation checker. Review this response and verify the law citations look real and correctly formatted for the stated state. Return JSON: {{\"citations_valid\": true/false, \"concern\": \"string or null\"}}\n\nResponse to check:\n{response_text}"
+                    }]
+                )
+
+                # Verification 2: Check for hedging language
+                hedge_check = client.messages.create(
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=200,
+                    temperature=0.1,
+                    messages=[{
+                        "role": "user",
+                        "content": f"Review this response for hedge words: might, may, could, possibly, perhaps. Return JSON: {{\"hedge_free\": true/false, \"flagged_words\": []}}\n\nResponse to check:\n{response_text}"
+                    }]
+                )
+
+                # Parse verification results
+                citation_result = json.loads(citation_check.content[0].text.strip())
+                hedge_result = json.loads(hedge_check.content[0].text.strip())
+
+                # Add citation warning if invalid
+                if not citation_result.get('citations_valid', True):
+                    if 'leverage' in result:
+                        result['leverage'] += "\n\nNote: verify this citation with a local legal aid organization before relying on it."
+
+                logger.info(f"Verification - Citations valid: {citation_result.get('citations_valid')}, Hedge-free: {hedge_result.get('hedge_free')}")
+
+            except Exception as verify_error:
+                logger.warning(f"Verification layer failed: {str(verify_error)}")
+                # Continue without verification if it fails
 
             # Increment usage and add remaining count
             remaining_after = increment_usage(client_ip)

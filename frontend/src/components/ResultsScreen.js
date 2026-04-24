@@ -7,12 +7,53 @@
 
 import React, { useState, useEffect } from 'react';
 
-const ResultsScreen = ({ results, onStartNew }) => {
+// FAQ data for each category
+const FAQ_DATA = {
+  housing: [
+    "What if my landlord retaliates after I send this?",
+    "What if I don't have a written lease?",
+    "Can I be evicted for complaining?",
+    "What if I can't afford a lawyer?"
+  ],
+  job: [
+    "Can I get fired for reporting this?",
+    "What if I don't have documentation?",
+    "What if I'm undocumented — can I still file?",
+    "How long do I have before the filing deadline?"
+  ],
+  money: [
+    "What if the debt collector calls again after I send this?",
+    "Can they garnish my wages?",
+    "What if the debt isn't mine?",
+    "Will this hurt my credit score?"
+  ],
+  benefits: [
+    "What if I miss the appeal deadline?",
+    "Can I get backdated benefits?",
+    "What if I was never told about my right to appeal?",
+    "What if I need help filling out the forms?"
+  ],
+  family: [
+    "What if the contractor threatens me?",
+    "What if I already paid them?",
+    "How do I prove what happened?",
+    "What if this person is a friend or family member?"
+  ],
+  other: [
+    "What if they ignore my message?",
+    "Can I get help if I can't afford a lawyer?",
+    "What documentation should I keep?",
+    "How long do I have to take action?"
+  ]
+};
+
+const ResultsScreen = ({ results, category, onStartNew }) => {
   const [showWait, setShowWait] = useState(false);
   const [showLeverage, setShowLeverage] = useState(false);
   const [showGuard, setShowGuard] = useState(false);
   const [typingMessage, setTypingMessage] = useState('');
   const [copyButtonText, setCopyButtonText] = useState('Copy to clipboard');
+  const [expandedFAQ, setExpandedFAQ] = useState({});
 
   useEffect(() => {
     if (!results || results.error) return;
@@ -85,6 +126,13 @@ const ResultsScreen = ({ results, onStartNew }) => {
       navigator.clipboard.writeText(window.location.origin);
       alert('Link copied to clipboard!');
     }
+  };
+
+  const toggleFAQ = (index) => {
+    setExpandedFAQ(prev => ({
+      ...prev,
+      [index]: !prev[index]
+    }));
   };
 
   if (!results) {
@@ -174,6 +222,69 @@ const ResultsScreen = ({ results, onStartNew }) => {
             <div className="guard-final">
               You are not alone in this. The Guard Table has your back.
             </div>
+          </div>
+        )}
+
+        {/* PEOPLE ALSO ASK */}
+        {showGuard && category && FAQ_DATA[category] && (
+          <div className="faq-section" style={{
+            marginTop: '32px',
+            marginBottom: '32px'
+          }}>
+            <div style={{
+              fontSize: '18px',
+              fontWeight: 'bold',
+              marginBottom: '16px',
+              color: '#fff'
+            }}>
+              People Also Ask
+            </div>
+            {FAQ_DATA[category].map((question, index) => (
+              <div key={index} style={{
+                backgroundColor: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '8px',
+                marginBottom: '8px',
+                overflow: 'hidden'
+              }}>
+                <button
+                  onClick={() => toggleFAQ(index)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fff',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                >
+                  <span>{question}</span>
+                  <span style={{
+                    transform: expandedFAQ[index] ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.3s ease'
+                  }}>
+                    ▼
+                  </span>
+                </button>
+                {expandedFAQ[index] && (
+                  <div style={{
+                    padding: '12px 16px',
+                    borderTop: '1px solid #333',
+                    backgroundColor: '#0a0a0a',
+                    color: '#8899aa',
+                    fontSize: '13px',
+                    lineHeight: '1.4'
+                  }}>
+                    This is a common concern. Each situation is unique, so the specific steps may vary. The message above gives you the strongest legal foundation to start with. If you need personalized guidance, search "[your county] legal aid" for free local resources, or contact 211 for help finding assistance in your area.
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 

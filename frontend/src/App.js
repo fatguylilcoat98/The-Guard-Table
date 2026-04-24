@@ -108,6 +108,7 @@ function App() {
       case 'results':
         return <ResultsScreen
           results={results}
+          category={selectedCategory}
           onStartNew={handleStartNew}
         />;
       default:
