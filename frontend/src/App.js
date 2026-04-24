@@ -159,6 +159,8 @@ function App() {
           admin access
         </div>
       )}
+
+      <div>
         {renderScreen()}
       </div>
 
