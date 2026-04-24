@@ -491,6 +491,18 @@ body {
   margin-top: 32px;
 }
 
+/* Remaining Count */
+.remaining-count {
+  text-align: center;
+  color: #888888;
+  font-size: 14px;
+  margin: 24px 0 16px 0;
+  line-height: 1.4;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 /* Error State */
 .error-message {
   background-color: #1a0000;

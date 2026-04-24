@@ -188,6 +188,13 @@ const ResultsScreen = ({ results, onStartNew }) => {
                 Share this
               </button>
             </div>
+            <div className="remaining-count">
+              {results.remaining_responses === 0 ? (
+                "You've used your 5 free responses this month. Need more help? Email us at thegoodneighborguard@gmail.com — we'll figure it out together."
+              ) : (
+                `${results.remaining_responses} free responses remaining this month`
+              )}
+            </div>
             <div className="results-footer">
               The Good Neighbor Guard — Truth · Safety · We Got Your Back
             </div>

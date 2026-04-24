@@ -7,10 +7,12 @@ Truth · Safety · We Got Your Back
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
+from collections import defaultdict
 import os
 import anthropic
 import json
 import logging
+from datetime import datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +38,31 @@ if not anthropic_api_key:
 
 client = anthropic.Anthropic(api_key=anthropic_api_key) if anthropic_api_key else None
 
+# Rate limiting: 5 requests per IP per calendar month
+# Format: ip_usage[ip][month_key] = count
+ip_usage = defaultdict(lambda: defaultdict(int))
+MONTHLY_LIMIT = 5
+
+def get_current_month_key():
+    """Get current month as YYYY-MM for tracking"""
+    return datetime.now().strftime("%Y-%m")
+
+def check_rate_limit(ip):
+    """Check if IP has exceeded monthly limit. Returns (allowed, remaining)"""
+    month_key = get_current_month_key()
+    current_usage = ip_usage[ip][month_key]
+
+    if current_usage >= MONTHLY_LIMIT:
+        return False, 0
+
+    return True, MONTHLY_LIMIT - current_usage
+
+def increment_usage(ip):
+    """Increment usage counter for IP"""
+    month_key = get_current_month_key()
+    ip_usage[ip][month_key] += 1
+    return MONTHLY_LIMIT - ip_usage[ip][month_key]
+
 @app.route('/api/guard', methods=['POST'])
 def guard_endpoint():
     """
@@ -50,6 +77,20 @@ def guard_endpoint():
 
         if not rant.strip():
             return jsonify({'error': 'Please tell us what happened'}), 400
+
+        # Rate limiting check
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if client_ip and ',' in client_ip:
+            # Handle multiple IPs in X-Forwarded-For (take the first one)
+            client_ip = client_ip.split(',')[0].strip()
+
+        allowed, remaining = check_rate_limit(client_ip)
+        if not allowed:
+            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+            return jsonify({
+                'error': 'limit_reached',
+                'message': "You've used your 5 free responses this month. Need more help? Email us at thegoodneighborguard@gmail.com — we'll figure it out together."
+            }), 429
 
         if not client:
             return jsonify({'error': 'Service temporarily unavailable'}), 503
@@ -103,7 +144,12 @@ Situation: {rant}"""
         # Parse JSON response
         try:
             result = json.loads(response_text)
-            logger.info("Successfully generated response")
+
+            # Increment usage and add remaining count
+            remaining_after = increment_usage(client_ip)
+            result['remaining_responses'] = remaining_after
+
+            logger.info(f"Successfully generated response. Remaining for {client_ip}: {remaining_after}")
             return jsonify(result)
         except json.JSONDecodeError:
             logger.error(f"Failed to parse JSON response: {response_text[:200]}")
