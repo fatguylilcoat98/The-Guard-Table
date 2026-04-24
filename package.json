@@ -1,0 +1,14 @@
+{
+  "name": "guard-table",
+  "version": "1.0.0",
+  "description": "Every company has a system. Now so do you.",
+  "scripts": {
+    "install-frontend": "cd frontend && npm install",
+    "build-frontend": "cd frontend && npm run build",
+    "start": "cd backend && python app.py",
+    "postinstall": "npm run install-frontend && npm run build-frontend"
+  },
+  "keywords": ["guard-table", "legal", "rights", "gng"],
+  "author": "Christopher Hughes <stangman9898@gmail.com>",
+  "license": "MIT"
+}
