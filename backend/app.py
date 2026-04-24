@@ -36,7 +36,14 @@ anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
 if not anthropic_api_key:
     logger.error("ANTHROPIC_API_KEY environment variable not set")
 
-client = anthropic.Anthropic(api_key=anthropic_api_key) if anthropic_api_key else None
+client = None
+if anthropic_api_key:
+    try:
+        client = anthropic.Anthropic(api_key=anthropic_api_key)
+        logger.info("Anthropic client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Anthropic client: {str(e)}")
+        client = None
 
 # Rate limiting: 5 requests per IP per calendar month
 # Format: ip_usage[ip][month_key] = count

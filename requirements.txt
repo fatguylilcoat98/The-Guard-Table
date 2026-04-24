@@ -1,5 +1,5 @@
 # The Guard Table - Backend Dependencies
 Flask==2.3.3
 Flask-CORS==4.0.0
-anthropic==0.34.2
+anthropic==0.21.3
 gunicorn==21.2.0
