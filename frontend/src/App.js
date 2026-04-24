@@ -140,7 +140,29 @@ function App() {
 
   return (
     <div className="App">
-      {renderScreen()}
+      {/* Admin Status Banner */}
+      {adminToken && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          backgroundColor: '#FFD700',
+          color: '#000',
+          padding: '8px 16px',
+          fontSize: '14px',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          zIndex: 10000,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)'
+        }}>
+          🔐 ADMIN ACCESS ACTIVE - All rate limits bypassed - Paid features enabled
+        </div>
+      )}
+
+      <div style={{ marginTop: adminToken ? '40px' : '0' }}>
+        {renderScreen()}
+      </div>
 
       {/* Admin Panel */}
       <div style={{
