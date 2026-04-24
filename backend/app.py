@@ -262,9 +262,9 @@ Situation: {rant}"""
             return jsonify({'error': 'Something went wrong — try again'}), 500
 
     except Exception as e:
-        logger.error(f"Error in guard_endpoint: {str(e)}")
-        logger.error(traceback.format_exc())
-        return jsonify({'error': 'Something went wrong — try again'}), 500
+        import traceback
+        logger.error(f"FULL ERROR: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -283,6 +283,23 @@ def test():
         'client_ready': bool(client),
         'key_preview': anthropic_api_key[:8] + '...' if anthropic_api_key else 'NOT SET'
     })
+
+@app.route('/api/debug', methods=['GET'])
+def debug_test():
+    """Debug endpoint to test Claude API call directly"""
+    try:
+        if not client:
+            return jsonify({'success': False, 'error': 'Claude client not initialized'})
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=100,
+            messages=[{"role": "user", "content": "Say hello in one word"}]
+        )
+        return jsonify({'success': True, 'response': response.content[0].text})
+    except Exception as e:
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()})
 
 @app.route('/', methods=['GET'])
 def root():
