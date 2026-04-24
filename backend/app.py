@@ -52,10 +52,20 @@ if anthropic_api_key:
 
 # Admin token system
 ADMIN_TOKENS = os.getenv('ADMIN_TOKENS', '').split(',')
+PAID_TOKENS = os.getenv('PAID_TOKENS', '').split(',')
 
 def is_admin(request):
     token = request.headers.get('X-Admin-Token') or (request.json.get('admin_token', '') if request.is_json else '')
     return token in ADMIN_TOKENS and token != ''
+
+def get_plan(request):
+    token_data = request.get_json(force=True, silent=True) or {}
+    admin_token = token_data.get('admin_token', '')
+    if admin_token in PAID_TOKENS and admin_token != '':
+        return 'paid'
+    if admin_token in ADMIN_TOKENS and admin_token != '':
+        return 'admin'
+    return 'free'
 
 # Rate limiting: Multiple layers of protection
 # Format: ip_usage[ip][month_key] = count
@@ -141,9 +151,12 @@ def guard_endpoint():
             # Handle multiple IPs in X-Forwarded-For (take the first one)
             client_ip = client_ip.split(',')[0].strip()
 
-        # Admin bypass: Skip all rate limiting for admin tokens
-        if is_admin(request):
-            logger.info(f"Admin token used, bypassing rate limits for {client_ip}")
+        # Plan detection and rate limiting
+        user_plan = get_plan(request)
+        logger.info(f"User plan: {user_plan} for {client_ip}")
+
+        if user_plan in ['admin', 'paid']:
+            logger.info(f"{user_plan.title()} access, bypassing rate limits for {client_ip}")
         else:
             # Check 1: Emergency stop (manual circuit breaker)
             if check_emergency_stop():
@@ -296,11 +309,17 @@ Situation: {rant}"""
                 logger.warning(f"Verification layer failed: {str(verify_error)}")
                 # Continue without verification if it fails
 
-            # Increment usage and add remaining count
-            remaining_after = increment_usage(client_ip)
-            result['remaining_responses'] = remaining_after
+            # Increment usage and add remaining count (only for free users)
+            if user_plan == 'free':
+                remaining_after = increment_usage(client_ip)
+                result['remaining_responses'] = remaining_after
+            else:
+                result['remaining_responses'] = 'unlimited'
 
-            logger.info(f"Successfully generated response. Remaining for {client_ip}: {remaining_after}")
+            # Add plan information to response
+            result['plan'] = user_plan
+
+            logger.info(f"Successfully generated response. Plan: {user_plan}, Remaining for {client_ip}: {result['remaining_responses']}")
             return jsonify(result)
         except json.JSONDecodeError:
             logger.error(f"Failed to parse JSON response: {response_text[:200]}")
