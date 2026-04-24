@@ -10,6 +10,7 @@ from flask_cors import CORS
 from collections import defaultdict
 import os
 import anthropic
+import httpx
 import json
 import logging
 from datetime import datetime
@@ -39,20 +40,62 @@ if not anthropic_api_key:
 client = None
 if anthropic_api_key:
     try:
-        client = anthropic.Anthropic(api_key=anthropic_api_key)
+        client = anthropic.Anthropic(
+            api_key=anthropic_api_key,
+            http_client=httpx.Client()
+        )
         logger.info("Anthropic client initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Anthropic client: {str(e)}")
         client = None
 
-# Rate limiting: 5 requests per IP per calendar month
+# Rate limiting: Multiple layers of protection
 # Format: ip_usage[ip][month_key] = count
+# Format: ip_last_request[ip] = timestamp
+# Format: daily_usage[day_key] = count
 ip_usage = defaultdict(lambda: defaultdict(int))
-MONTHLY_LIMIT = 5
+ip_last_request = defaultdict(float)
+daily_usage = defaultdict(int)
+
+# Limits
+MONTHLY_LIMIT = 5           # 5 requests per IP per month
+HOURLY_COOLDOWN = 3600      # 1 hour between requests per IP
+DAILY_GLOBAL_LIMIT = 100    # Max 100 API calls per day total (adjust based on budget)
+EMERGENCY_STOP = False      # Manual circuit breaker
 
 def get_current_month_key():
     """Get current month as YYYY-MM for tracking"""
     return datetime.now().strftime("%Y-%m")
+
+def get_current_day_key():
+    """Get current day as YYYY-MM-DD for tracking"""
+    return datetime.now().strftime("%Y-%m-%d")
+
+def check_emergency_stop():
+    """Check if emergency stop is enabled"""
+    global EMERGENCY_STOP
+    return EMERGENCY_STOP
+
+def check_global_daily_limit():
+    """Check if global daily limit exceeded. Returns (allowed, remaining)"""
+    day_key = get_current_day_key()
+    current_usage = daily_usage[day_key]
+
+    if current_usage >= DAILY_GLOBAL_LIMIT:
+        return False, 0
+
+    return True, DAILY_GLOBAL_LIMIT - current_usage
+
+def check_hourly_cooldown(ip):
+    """Check if IP is still in cooldown period. Returns (allowed, seconds_remaining)"""
+    now = datetime.now().timestamp()
+    last_request = ip_last_request[ip]
+
+    if last_request and (now - last_request) < HOURLY_COOLDOWN:
+        seconds_remaining = int(HOURLY_COOLDOWN - (now - last_request))
+        return False, seconds_remaining
+
+    return True, 0
 
 def check_rate_limit(ip):
     """Check if IP has exceeded monthly limit. Returns (allowed, remaining)"""
@@ -65,9 +108,16 @@ def check_rate_limit(ip):
     return True, MONTHLY_LIMIT - current_usage
 
 def increment_usage(ip):
-    """Increment usage counter for IP"""
+    """Increment usage counters for IP and global daily"""
     month_key = get_current_month_key()
+    day_key = get_current_day_key()
+    now = datetime.now().timestamp()
+
+    # Update all counters
     ip_usage[ip][month_key] += 1
+    ip_last_request[ip] = now
+    daily_usage[day_key] += 1
+
     return MONTHLY_LIMIT - ip_usage[ip][month_key]
 
 @app.route('/api/guard', methods=['POST'])
@@ -85,17 +135,45 @@ def guard_endpoint():
         if not rant.strip():
             return jsonify({'error': 'Please tell us what happened'}), 400
 
-        # Rate limiting check
+        # Multi-layer rate limiting checks
         client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         if client_ip and ',' in client_ip:
             # Handle multiple IPs in X-Forwarded-For (take the first one)
             client_ip = client_ip.split(',')[0].strip()
 
-        allowed, remaining = check_rate_limit(client_ip)
-        if not allowed:
-            logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+        # Check 1: Emergency stop (manual circuit breaker)
+        if check_emergency_stop():
+            logger.warning("Emergency stop activated - service temporarily disabled")
             return jsonify({
-                'error': 'limit_reached',
+                'error': 'service_temporarily_disabled',
+                'message': "The Guard Table is temporarily unavailable due to high demand. Please email us at thegoodneighborguard@gmail.com and we'll help you directly."
+            }), 503
+
+        # Check 2: Global daily limit (protect against viral traffic)
+        global_allowed, global_remaining = check_global_daily_limit()
+        if not global_allowed:
+            logger.warning(f"Global daily limit reached: {DAILY_GLOBAL_LIMIT}")
+            return jsonify({
+                'error': 'daily_limit_reached',
+                'message': "We've hit our daily response limit but we're here to help. Email us at thegoodneighborguard@gmail.com with your situation and we'll respond within 24 hours."
+            }), 429
+
+        # Check 3: Hourly cooldown per IP (prevent rapid consumption)
+        cooldown_allowed, seconds_remaining = check_hourly_cooldown(client_ip)
+        if not cooldown_allowed:
+            minutes_remaining = max(1, seconds_remaining // 60)
+            logger.info(f"IP {client_ip} in cooldown, {minutes_remaining}m remaining")
+            return jsonify({
+                'error': 'cooldown_active',
+                'message': f"Please wait {minutes_remaining} minutes before your next request. This helps us serve everyone fairly. Need urgent help? Email thegoodneighborguard@gmail.com"
+            }), 429
+
+        # Check 4: Monthly limit per IP (original limit)
+        monthly_allowed, monthly_remaining = check_rate_limit(client_ip)
+        if not monthly_allowed:
+            logger.warning(f"Monthly limit exceeded for IP: {client_ip}")
+            return jsonify({
+                'error': 'monthly_limit_reached',
                 'message': "You've used your 5 free responses this month. Need more help? Email us at thegoodneighborguard@gmail.com — we'll figure it out together."
             }), 429
 
@@ -209,6 +287,39 @@ def root():
                 '/health': 'GET - Health check'
             }
         })
+
+@app.route('/admin/emergency-stop/<action>', methods=['POST'])
+def emergency_stop_control(action):
+    """Emergency stop control - admin only (requires special header)"""
+    # Simple auth check - require special header
+    if request.headers.get('X-Admin-Key') != os.getenv('GUARD_ADMIN_KEY'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    global EMERGENCY_STOP
+    if action == 'enable':
+        EMERGENCY_STOP = True
+        logger.critical("EMERGENCY STOP ENABLED - All Guard Table requests blocked")
+        return jsonify({'status': 'Emergency stop ENABLED', 'emergency_stop': True})
+    elif action == 'disable':
+        EMERGENCY_STOP = False
+        logger.info("Emergency stop disabled - service resumed")
+        return jsonify({'status': 'Emergency stop DISABLED', 'emergency_stop': False})
+    else:
+        return jsonify({'error': 'Invalid action. Use enable or disable'}), 400
+
+@app.route('/admin/status', methods=['GET'])
+def admin_status():
+    """Admin status - show current limits and usage"""
+    if request.headers.get('X-Admin-Key') != os.getenv('GUARD_ADMIN_KEY'):
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    day_key = get_current_day_key()
+    return jsonify({
+        'emergency_stop': EMERGENCY_STOP,
+        'daily_usage': daily_usage[day_key],
+        'daily_limit': DAILY_GLOBAL_LIMIT,
+        'daily_remaining': DAILY_GLOBAL_LIMIT - daily_usage[day_key]
+    })
 
 @app.route('/<path:path>')
 def serve_react_app(path):
