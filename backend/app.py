@@ -50,6 +50,13 @@ if anthropic_api_key:
         logger.error(f"Failed to initialize Anthropic client: {str(e)}")
         client = None
 
+# Admin token system
+ADMIN_TOKENS = os.getenv('ADMIN_TOKENS', '').split(',')
+
+def is_admin(request):
+    token = request.headers.get('X-Admin-Token') or (request.json.get('admin_token', '') if request.is_json else '')
+    return token in ADMIN_TOKENS and token != ''
+
 # Rate limiting: Multiple layers of protection
 # Format: ip_usage[ip][month_key] = count
 # Format: ip_last_request[ip] = timestamp
@@ -60,7 +67,6 @@ daily_usage = defaultdict(int)
 
 # Limits
 MONTHLY_LIMIT = 5           # 5 requests per IP per month
-HOURLY_COOLDOWN = 3600      # 1 hour between requests per IP
 DAILY_GLOBAL_LIMIT = 100    # Max 100 API calls per day total (adjust based on budget)
 EMERGENCY_STOP = False      # Manual circuit breaker
 
@@ -87,16 +93,6 @@ def check_global_daily_limit():
 
     return True, DAILY_GLOBAL_LIMIT - current_usage
 
-def check_hourly_cooldown(ip):
-    """Check if IP is still in cooldown period. Returns (allowed, seconds_remaining)"""
-    now = datetime.now().timestamp()
-    last_request = ip_last_request[ip]
-
-    if last_request and (now - last_request) < HOURLY_COOLDOWN:
-        seconds_remaining = int(HOURLY_COOLDOWN - (now - last_request))
-        return False, seconds_remaining
-
-    return True, 0
 
 def check_rate_limit(ip):
     """Check if IP has exceeded monthly limit. Returns (allowed, remaining)"""
@@ -145,41 +141,35 @@ def guard_endpoint():
             # Handle multiple IPs in X-Forwarded-For (take the first one)
             client_ip = client_ip.split(',')[0].strip()
 
-        # Check 1: Emergency stop (manual circuit breaker)
-        if check_emergency_stop():
-            logger.warning("Emergency stop activated - service temporarily disabled")
-            return jsonify({
-                'error': 'service_temporarily_disabled',
-                'message': "The Guard Table is temporarily unavailable due to high demand. Please email us at thegoodneighborguard@gmail.com and we'll help you directly."
-            }), 503
+        # Admin bypass: Skip all rate limiting for admin tokens
+        if is_admin(request):
+            logger.info(f"Admin token used, bypassing rate limits for {client_ip}")
+        else:
+            # Check 1: Emergency stop (manual circuit breaker)
+            if check_emergency_stop():
+                logger.warning("Emergency stop activated - service temporarily disabled")
+                return jsonify({
+                    'error': 'service_temporarily_disabled',
+                    'message': "The Guard Table is temporarily unavailable due to high demand. Please email us at thegoodneighborguard@gmail.com and we'll help you directly."
+                }), 503
 
-        # Check 2: Global daily limit (protect against viral traffic)
-        global_allowed, global_remaining = check_global_daily_limit()
-        if not global_allowed:
-            logger.warning(f"Global daily limit reached: {DAILY_GLOBAL_LIMIT}")
-            return jsonify({
-                'error': 'daily_limit_reached',
-                'message': "We've hit our daily response limit but we're here to help. Email us at thegoodneighborguard@gmail.com with your situation and we'll respond within 24 hours."
-            }), 429
+            # Check 2: Global daily limit (protect against viral traffic)
+            global_allowed, global_remaining = check_global_daily_limit()
+            if not global_allowed:
+                logger.warning(f"Global daily limit reached: {DAILY_GLOBAL_LIMIT}")
+                return jsonify({
+                    'error': 'daily_limit_reached',
+                    'message': "We've hit our daily response limit but we're here to help. Email us at thegoodneighborguard@gmail.com with your situation and we'll respond within 24 hours."
+                }), 429
 
-        # Check 3: Hourly cooldown per IP (prevent rapid consumption)
-        cooldown_allowed, seconds_remaining = check_hourly_cooldown(client_ip)
-        if not cooldown_allowed:
-            minutes_remaining = max(1, seconds_remaining // 60)
-            logger.info(f"IP {client_ip} in cooldown, {minutes_remaining}m remaining")
-            return jsonify({
-                'error': 'cooldown_active',
-                'message': f"Please wait {minutes_remaining} minutes before your next request. This helps us serve everyone fairly. Need urgent help? Email thegoodneighborguard@gmail.com"
-            }), 429
-
-        # Check 4: Monthly limit per IP (original limit)
-        monthly_allowed, monthly_remaining = check_rate_limit(client_ip)
-        if not monthly_allowed:
-            logger.warning(f"Monthly limit exceeded for IP: {client_ip}")
-            return jsonify({
-                'error': 'monthly_limit_reached',
-                'message': "You've used your 5 free responses this month. Need more help? Email us at thegoodneighborguard@gmail.com — we'll figure it out together."
-            }), 429
+            # Check 3: Monthly limit per IP (original limit)
+            monthly_allowed, monthly_remaining = check_rate_limit(client_ip)
+            if not monthly_allowed:
+                logger.warning(f"Monthly limit exceeded for IP: {client_ip}")
+                return jsonify({
+                    'error': 'monthly_limit_reached',
+                    'message': "You've used your 5 free responses this month. Need more help? Email us at thegoodneighborguard@gmail.com — we'll figure it out together."
+                }), 429
 
         if not client:
             return jsonify({'error': 'Service temporarily unavailable'}), 503
