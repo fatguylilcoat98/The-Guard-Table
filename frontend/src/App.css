@@ -115,6 +115,9 @@ body {
   margin-bottom: auto;
   opacity: 0;
   animation: fade-in 1s ease-out 3s forwards;
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .landing-footer {
