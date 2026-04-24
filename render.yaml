@@ -1,0 +1,16 @@
+# The Guard Table - Render Deploy Configuration
+services:
+  - type: web
+    name: guard-table-app
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt && npm install && npm run build-frontend"
+    startCommand: "cd backend && gunicorn -b 0.0.0.0:$PORT app:app"
+    healthCheckPath: /health
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+    disk:
+      name: guard-table-disk
+      mountPath: /tmp
+      sizeGB: 1
