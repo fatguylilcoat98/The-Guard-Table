@@ -15,10 +15,27 @@ import json
 import logging
 import traceback
 from datetime import datetime
+import subprocess
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Get dynamic version info
+def get_version_info():
+    try:
+        # Get git commit hash
+        commit_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD'],
+                                            stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        # Get commit timestamp
+        commit_time = subprocess.check_output(['git', 'log', '-1', '--format=%cd', '--date=format:%m/%d %H:%M'],
+                                            stderr=subprocess.DEVNULL).decode('utf-8').strip()
+        return f"v{commit_hash} - {commit_time}"
+    except:
+        # Fallback to timestamp if git not available
+        return f"v{datetime.now().strftime('%m%d-%H%M')}"
+
+VERSION = get_version_info()
 
 # Determine if we're in production (Render) or development
 FRONTEND_BUILD_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'frontend', 'build')
@@ -376,8 +393,9 @@ Situation: {rant}"""
             else:
                 result['remaining_responses'] = 'unlimited'
 
-            # Add plan information to response
+            # Add plan and version information to response
             result['plan'] = user_plan
+            result['version'] = VERSION
 
             logger.info(f"Successfully generated response. Plan: {user_plan}, Remaining for {client_ip}: {result['remaining_responses']}")
             return jsonify(result)
@@ -396,7 +414,8 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'The Guard Table',
-        'version': '1.0.1'
+        'version': VERSION,
+        'deployed': datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
     })
 
 @app.route('/api/test', methods=['GET'])

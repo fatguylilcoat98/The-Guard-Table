@@ -668,6 +668,16 @@ Truth · Safety · We Got Your Back
             </div>
             <div className="results-footer">
               The Good Neighbor Guard — Truth · Safety · We Got Your Back
+              {results.version && (
+                <div style={{
+                  fontSize: '10px',
+                  color: '#666',
+                  marginTop: '4px',
+                  fontFamily: 'monospace'
+                }}>
+                  {results.version}
+                </div>
+              )}
             </div>
             <div style={{
               backgroundColor: '#1a1a1a',
