@@ -8,12 +8,15 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import LandingScreen from './components/LandingScreen';
+import ModeSelectScreen from './components/ModeSelectScreen';
 import CategoryScreen from './components/CategoryScreen';
 import InputScreen from './components/InputScreen';
 import ResultsScreen from './components/ResultsScreen';
+import ThoughtPartnerScreen from './components/ThoughtPartnerScreen';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState('landing');
+  const [selectedMode, setSelectedMode] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [userState, setUserState] = useState('California');
   const [currentInput, setCurrentInput] = useState('');
@@ -37,7 +40,16 @@ function App() {
   }, []);
 
   const handleGetHelp = () => {
-    setCurrentScreen('category');
+    setCurrentScreen('mode-select');
+  };
+
+  const handleModeSelect = (mode) => {
+    setSelectedMode(mode);
+    if (mode === 'protection') {
+      setCurrentScreen('category');
+    } else if (mode === 'thought') {
+      setCurrentScreen('thought-partner');
+    }
   };
 
   const handleCategorySelect = (category) => {
@@ -85,6 +97,7 @@ function App() {
 
   const handleStartNew = () => {
     setCurrentScreen('landing');
+    setSelectedMode('');
     setSelectedCategory('');
     setCurrentInput('');
     setResults(null);
@@ -128,6 +141,13 @@ function App() {
     switch (currentScreen) {
       case 'landing':
         return <LandingScreen onGetHelp={handleGetHelp} />;
+      case 'mode-select':
+        return <ModeSelectScreen onSelectMode={handleModeSelect} />;
+      case 'thought-partner':
+        return <ThoughtPartnerScreen
+          onBack={() => setCurrentScreen('mode-select')}
+          onStartNew={handleStartNew}
+        />;
       case 'category':
         return <CategoryScreen onSelectCategory={handleCategorySelect} />;
       case 'input':

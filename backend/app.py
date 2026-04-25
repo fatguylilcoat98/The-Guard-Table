@@ -408,6 +408,106 @@ Situation: {rant}"""
         logger.error(f"FULL ERROR: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/thought-partner', methods=['POST'])
+def thought_partner_endpoint():
+    """
+    AI Thought Partner - helping people think through complex decisions.
+    Not legal advice, not therapy - just a thinking companion.
+    """
+    try:
+        logger.info(f"Thought Partner request received - Content-Type: {request.content_type}")
+        data = request.get_json(force=True, silent=True)
+        message = data.get('message', '')
+        conversation_history = data.get('conversation_history', [])
+
+        if not message.strip():
+            return jsonify({'error': 'Please share what\'s on your mind'}), 400
+
+        # Rate limiting (same as guard endpoint but separate counters)
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if client_ip and ',' in client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+
+        user_plan = get_plan(request)
+        logger.info(f"Thought Partner - User plan: {user_plan} for {client_ip}")
+
+        if not client:
+            return jsonify({'error': 'Service temporarily unavailable'}), 503
+
+        # Build conversation context
+        conversation_context = ""
+        if conversation_history:
+            # Include last few messages for context
+            recent_messages = conversation_history[-6:]  # Last 6 messages
+            for msg in recent_messages:
+                if msg.get('type') == 'user':
+                    conversation_context += f"Human: {msg.get('content', '')}\n"
+                elif msg.get('type') == 'assistant':
+                    conversation_context += f"Assistant: {msg.get('content', '')}\n"
+
+        # The Thought Partner system prompt
+        system_prompt = """You are an AI Thought Partner. Your purpose is to help people think through complex decisions, problems, and life situations by being genuinely curious about their perspective and helping them explore their own wisdom.
+
+CORE PRINCIPLES:
+- You are NOT giving advice. You are helping them think.
+- You are NOT a therapist. You are a thinking companion.
+- Ask questions that help them discover their own insights.
+- Offer multiple frameworks and perspectives to consider.
+- Be genuinely curious about what matters to them.
+- Help them explore their values, not impose yours.
+
+YOUR APPROACH:
+1. **Listen deeply** - Reflect back what you hear them saying
+2. **Ask good questions** - "What would you regret NOT trying?" "What does your gut tell you?"
+3. **Offer frameworks** - logical, emotional, long-term, different cultural perspectives
+4. **Play devil's advocate gently** - help stress-test their thinking
+5. **Remember their journey** - reference their growth and patterns over time
+
+TONE:
+- Warm but not overly familiar
+- Curious, not prescriptive
+- Thoughtful, not rushed
+- Human, not robotic
+- Respectful of their autonomy
+
+When they share something:
+- First, acknowledge what they're going through
+- Then ask a question that helps them explore deeper
+- Offer a perspective or framework if helpful
+- Always remember they are the expert on their own life
+
+You are here to amplify their thinking, not replace it."""
+
+        # Prepare the user's message with context
+        user_input = message
+        if conversation_context:
+            user_input = f"[Previous conversation context]\n{conversation_context}\n[Current message]\n{message}"
+
+        # Call Claude
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            system=system_prompt,
+            messages=[{
+                "role": "user",
+                "content": user_input
+            }]
+        )
+
+        response_text = response.content[0].text.strip()
+
+        logger.info(f"Thought Partner response generated successfully for {client_ip}")
+
+        return jsonify({
+            'response': response_text,
+            'version': VERSION
+        })
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Thought Partner ERROR: {traceback.format_exc()}")
+        return jsonify({'error': 'I\'m having trouble connecting right now. Could you try rephrasing your thought?'}), 500
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint for deployment monitoring"""
