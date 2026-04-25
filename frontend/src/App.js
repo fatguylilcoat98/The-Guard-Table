@@ -8,7 +8,6 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 import LandingScreen from './components/LandingScreen';
-import ModeSelectScreen from './components/ModeSelectScreen';
 import CategoryScreen from './components/CategoryScreen';
 import InputScreen from './components/InputScreen';
 import ResultsScreen from './components/ResultsScreen';
@@ -46,14 +45,6 @@ function App() {
     }
   };
 
-  const handleModeSelect = (mode) => {
-    setSelectedMode(mode);
-    if (mode === 'protection') {
-      setCurrentScreen('category');
-    } else if (mode === 'thought') {
-      setCurrentScreen('thought-partner');
-    }
-  };
 
   const handleSwitchMode = (mode) => {
     setSelectedCategory(''); // Reset category when switching modes
@@ -154,8 +145,6 @@ function App() {
     switch (currentScreen) {
       case 'landing':
         return <LandingScreen onGetHelp={handleGetHelp} />;
-      case 'mode-select':
-        return <ModeSelectScreen onSelectMode={handleModeSelect} />;
       case 'thought-partner':
         return <ThoughtPartnerScreen
           onBack={() => setCurrentScreen('landing')}
