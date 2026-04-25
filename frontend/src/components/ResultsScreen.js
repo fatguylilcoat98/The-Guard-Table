@@ -347,30 +347,76 @@ Truth · Safety · We Got Your Back
             <div className="leverage-header">
               Here's what you send. Right now.
             </div>
-            <div className="leverage-message">
+            <div className="leverage-message" style={{
+              fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+              fontSize: '14px',
+              lineHeight: '1.5',
+              letterSpacing: 'normal',
+              maxWidth: '100%',
+              wordWrap: 'break-word',
+              padding: '16px',
+              backgroundColor: '#1a1a1a',
+              border: '1px solid #333',
+              borderRadius: '8px',
+              margin: '16px 0',
+              whiteSpace: 'pre-wrap'
+            }}>
               {adjustedLeverage || typingMessage}
             </div>
-            <div className="leverage-actions">
+            <div className="leverage-actions" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <button
                 className={`copy-btn ${copyButtonText.includes('Copied') ? 'copied' : ''}`}
                 onClick={handleCopy}
+                style={{
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  padding: '12px 24px',
+                  backgroundColor: '#0066ff',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
               >
                 {copyButtonText}
               </button>
-              <button
-                className="adjust-btn"
-                onClick={() => adjustTone('stronger')}
-                disabled={adjustingTone !== ''}
-              >
-                {adjustingTone === 'stronger' ? 'Adjusting...' : 'Make it stronger'}
-              </button>
-              <button
-                className="adjust-btn"
-                onClick={() => adjustTone('softer')}
-                disabled={adjustingTone !== ''}
-              >
-                {adjustingTone === 'softer' ? 'Adjusting...' : 'Make it softer'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  className="adjust-btn"
+                  onClick={() => adjustTone('stronger')}
+                  disabled={adjustingTone !== ''}
+                  style={{
+                    fontSize: '12px',
+                    padding: '6px 12px',
+                    backgroundColor: 'transparent',
+                    color: '#8899aa',
+                    border: '1px solid #333',
+                    borderRadius: '4px',
+                    cursor: adjustingTone === '' ? 'pointer' : 'not-allowed',
+                    flex: 1
+                  }}
+                >
+                  {adjustingTone === 'stronger' ? 'Adjusting...' : 'Make it stronger'}
+                </button>
+                <button
+                  className="adjust-btn"
+                  onClick={() => adjustTone('softer')}
+                  disabled={adjustingTone !== ''}
+                  style={{
+                    fontSize: '12px',
+                    padding: '6px 12px',
+                    backgroundColor: 'transparent',
+                    color: '#8899aa',
+                    border: '1px solid #333',
+                    borderRadius: '4px',
+                    cursor: adjustingTone === '' ? 'pointer' : 'not-allowed',
+                    flex: 1
+                  }}
+                >
+                  {adjustingTone === 'softer' ? 'Adjusting...' : 'Make it softer'}
+                </button>
+              </div>
             </div>
             <div className="send-note">
               Send this by email or text. Keep the receipt. Do not call.
@@ -517,7 +563,7 @@ Truth · Safety · We Got Your Back
               </div>
             ))}
             <div className="guard-final">
-              You are not alone in this. The Guard Table has your back.
+              You can push back. Start with the message above.
             </div>
           </div>
         )}

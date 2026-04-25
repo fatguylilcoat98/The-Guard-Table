@@ -5,7 +5,7 @@
  * Truth · Safety · We Got Your Back
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import './App.css';
 import LandingScreen from './components/LandingScreen';
 import CategoryScreen from './components/CategoryScreen';
@@ -21,6 +21,20 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [adminToken, setAdminToken] = useState(localStorage.getItem('guardTableAdminToken') || '');
   const [adminPanelCollapsed, setAdminPanelCollapsed] = useState(!!localStorage.getItem('guardTableAdminToken'));
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+
+  // Show admin panel with Ctrl+Shift+A combination
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'A') {
+        e.preventDefault();
+        setShowAdminPanel(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleGetHelp = () => {
     setCurrentScreen('category');
@@ -159,8 +173,9 @@ function App() {
         {renderScreen()}
       </div>
 
-      {/* Admin Panel */}
-      <div style={{
+      {/* Admin Panel - Hidden by default, Ctrl+Shift+A to show */}
+      {showAdminPanel && (
+        <div style={{
         position: 'fixed',
         bottom: '10px',
         right: '10px',
@@ -209,6 +224,7 @@ function App() {
           </>
         )}
       </div>
+      )}
     </div>
   );
 }
