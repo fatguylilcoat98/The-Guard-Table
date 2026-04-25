@@ -39,12 +39,29 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleGetHelp = () => {
-    setCurrentScreen('mode-select');
+  const handleGetHelp = (mode) => {
+    setSelectedMode(mode);
+    if (mode === 'protection') {
+      setCurrentScreen('category');
+    } else if (mode === 'thought') {
+      setCurrentScreen('thought-partner');
+    }
   };
 
   const handleModeSelect = (mode) => {
     setSelectedMode(mode);
+    if (mode === 'protection') {
+      setCurrentScreen('category');
+    } else if (mode === 'thought') {
+      setCurrentScreen('thought-partner');
+    }
+  };
+
+  const handleSwitchMode = (mode) => {
+    setSelectedMode(mode);
+    setSelectedCategory(''); // Reset category when switching modes
+    setCurrentInput(''); // Reset input when switching modes
+    setResults(null); // Reset results when switching modes
     if (mode === 'protection') {
       setCurrentScreen('category');
     } else if (mode === 'thought') {
@@ -145,11 +162,15 @@ function App() {
         return <ModeSelectScreen onSelectMode={handleModeSelect} />;
       case 'thought-partner':
         return <ThoughtPartnerScreen
-          onBack={() => setCurrentScreen('mode-select')}
+          onBack={() => setCurrentScreen('landing')}
           onStartNew={handleStartNew}
+          onSwitchMode={handleSwitchMode}
         />;
       case 'category':
-        return <CategoryScreen onSelectCategory={handleCategorySelect} />;
+        return <CategoryScreen
+          onSelectCategory={handleCategorySelect}
+          onSwitchMode={handleSwitchMode}
+        />;
       case 'input':
         return <InputScreen
           category={selectedCategory}

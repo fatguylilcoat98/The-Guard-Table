@@ -38,10 +38,16 @@ const LandingScreen = ({ onGetHelp }) => {
         </p>
         <div className="landing-cta">
           <button
-            className="btn btn-glow"
-            onClick={onGetHelp}
+            className="btn btn-protection"
+            onClick={() => onGetHelp('protection')}
           >
-            I need help right now
+            🛡️ I need protection
+          </button>
+          <button
+            className="btn btn-thought"
+            onClick={() => onGetHelp('thought')}
+          >
+            🧠 I need perspective
           </button>
         </div>
       </div>

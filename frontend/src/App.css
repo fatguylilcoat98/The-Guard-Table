@@ -117,7 +117,39 @@ body {
   animation: fade-in 1s ease-out 3s forwards;
   display: flex;
   justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
   width: 100%;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.btn-protection {
+  background: linear-gradient(135deg, #ff6b35 0%, #ff8f50 100%);
+  border: 2px solid #ff6b35;
+  flex: 1;
+  min-width: 250px;
+}
+
+.btn-protection:hover {
+  background: linear-gradient(135deg, #ff8f50 0%, #ffab70 100%);
+  border-color: #ff8f50;
+  transform: translateY(-2px);
+}
+
+.btn-thought {
+  background: linear-gradient(135deg, #06ffa5 0%, #00d4ff 100%);
+  border: 2px solid #06ffa5;
+  color: #0a0a0a;
+  flex: 1;
+  min-width: 250px;
+}
+
+.btn-thought:hover {
+  background: linear-gradient(135deg, #2affbc 0%, #2ae4ff 100%);
+  border-color: #2affbc;
+  transform: translateY(-2px);
 }
 
 .landing-footer {
@@ -885,4 +917,49 @@ body {
   .tp-input-section {
     padding: 16px;
   }
+
+  .landing-cta {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .btn-protection,
+  .btn-thought {
+    min-width: 100%;
+    max-width: 350px;
+  }
+}
+
+/* Mode Switch Button Styles */
+.mode-switch-btn {
+  background: none;
+  border: 1px solid #444444;
+  color: #888888;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-top: 8px;
+}
+
+.mode-switch-btn:hover {
+  border-color: #666666;
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.category-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.category-header .mode-switch-btn {
+  margin-top: 16px;
+}
+
+.tp-switch {
+  margin-top: 4px;
+  font-size: 12px;
+  padding: 6px 12px;
 }

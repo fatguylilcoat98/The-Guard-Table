@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
-const ThoughtPartnerScreen = ({ onBack, onStartNew }) => {
+const ThoughtPartnerScreen = ({ onBack, onStartNew, onSwitchMode }) => {
   const [messages, setMessages] = useState([
     {
       type: 'assistant',
@@ -95,6 +95,12 @@ const ThoughtPartnerScreen = ({ onBack, onStartNew }) => {
         <div className="tp-title">
           <h2>🧠 Thought Partner</h2>
           <p>Let's think through this together</p>
+          <button
+            className="mode-switch-btn tp-switch"
+            onClick={() => onSwitchMode('protection')}
+          >
+            🛡️ Need protection instead?
+          </button>
         </div>
         <button className="tp-new-btn" onClick={onStartNew}>
           New

@@ -7,7 +7,7 @@
 
 import React from 'react';
 
-const CategoryScreen = ({ onSelectCategory }) => {
+const CategoryScreen = ({ onSelectCategory, onSwitchMode }) => {
   const categories = [
     {
       id: 'housing',
@@ -51,6 +51,12 @@ const CategoryScreen = ({ onSelectCategory }) => {
     <div className="category-screen">
       <div className="category-header">
         <h1>What are they doing to you?</h1>
+        <button
+          className="mode-switch-btn"
+          onClick={() => onSwitchMode('thought')}
+        >
+          🧠 Need perspective instead?
+        </button>
       </div>
       <div className="category-grid">
         {categories.map((category) => (
