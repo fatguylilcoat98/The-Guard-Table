@@ -16,7 +16,6 @@ import ThoughtPartnerScreen from './components/ThoughtPartnerScreen';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState('landing');
-  const [selectedMode, setSelectedMode] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [userState, setUserState] = useState('California');
   const [currentInput, setCurrentInput] = useState('');
@@ -40,7 +39,6 @@ function App() {
   }, []);
 
   const handleGetHelp = (mode) => {
-    setSelectedMode(mode);
     if (mode === 'protection') {
       setCurrentScreen('category');
     } else if (mode === 'thought') {
@@ -58,7 +56,6 @@ function App() {
   };
 
   const handleSwitchMode = (mode) => {
-    setSelectedMode(mode);
     setSelectedCategory(''); // Reset category when switching modes
     setCurrentInput(''); // Reset input when switching modes
     setResults(null); // Reset results when switching modes
@@ -114,7 +111,6 @@ function App() {
 
   const handleStartNew = () => {
     setCurrentScreen('landing');
-    setSelectedMode('');
     setSelectedCategory('');
     setCurrentInput('');
     setResults(null);
