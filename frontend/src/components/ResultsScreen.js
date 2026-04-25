@@ -419,7 +419,12 @@ Truth · Safety · We Got Your Back
               </div>
             </div>
             <div className="send-note">
-              Send this by email or text. Keep the receipt. Do not call.
+              {(() => {
+                if (category === 'job') return 'Send this by text or email. Keep screenshots and pay records. Don\'t handle it only by phone.';
+                if (category === 'housing') return 'Send this by text or email. Keep screenshots, photos, rent receipts, and any notices. Don\'t handle it only by phone.';
+                if (category === 'money') return 'Send this in writing. Keep copies of every message, letter, and call log.';
+                return 'Send this by text or email. Keep screenshots. Don\'t call.';
+              })()}
             </div>
 
             {/* PAID TIER FEATURES - Only visible with admin token */}
@@ -563,7 +568,19 @@ Truth · Safety · We Got Your Back
               </div>
             ))}
             <div className="guard-final">
-              You can push back. Start with the message above.
+              {(() => {
+                if (category === 'housing') return 'Don\'t leave voluntarily because of a threat. Start with the message above.';
+                if (category === 'job') return 'Don\'t let this stay verbal. Start with the message above.';
+                if (category === 'money') return 'Don\'t pay until they prove the debt. Start with the message above.';
+                if (category === 'other') {
+                  // Check if it's likely a scam based on common keywords
+                  const leverageText = (results.leverage || '').toLowerCase();
+                  if (leverageText.includes('deposit') || leverageText.includes('zelle') || leverageText.includes('venmo') || leverageText.includes('cash app')) {
+                    return 'Don\'t send the money. Start with the message above.';
+                  }
+                }
+                return 'Start with the message above.';
+              })()}
             </div>
           </div>
         )}

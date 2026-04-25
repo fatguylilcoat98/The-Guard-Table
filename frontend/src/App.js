@@ -154,8 +154,8 @@ function App() {
 
   return (
     <div className="App">
-      {/* Admin Status Text */}
-      {adminToken && (
+      {/* Admin Status Text - Only show when admin panel is visible */}
+      {adminToken && showAdminPanel && (
         <div style={{
           position: 'fixed',
           top: '10px',
