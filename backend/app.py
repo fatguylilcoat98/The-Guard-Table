@@ -85,25 +85,32 @@ def get_plan(request):
     return 'free'
 
 # Rate limiting: Multiple layers of protection
-# Format: ip_usage[ip][month_key] = count
-# Format: ip_last_request[ip] = timestamp
-# Format: daily_usage[day_key] = count
-ip_usage = defaultdict(lambda: defaultdict(int))
-ip_last_request = defaultdict(float)
-daily_usage = defaultdict(int)
+# Format: ip_daily_usage[ip][day_key] = count
+# Format: session_usage[session_id][day_key] = count
+# Format: global_daily_usage[day_key] = count
+ip_daily_usage = defaultdict(lambda: defaultdict(int))
+session_usage = defaultdict(lambda: defaultdict(int))
+global_daily_usage = defaultdict(int)
+request_log = []  # Store all requests for monitoring
 
 # Limits
-MONTHLY_LIMIT = 5           # 5 requests per IP per month
-DAILY_GLOBAL_LIMIT = 100    # Max 100 API calls per day total (adjust based on budget)
-EMERGENCY_STOP = False      # Manual circuit breaker
-
-def get_current_month_key():
-    """Get current month as YYYY-MM for tracking"""
-    return datetime.now().strftime("%Y-%m")
+IP_DAILY_LIMIT = 3         # 3 free requests per IP per 24 hours
+SESSION_DAILY_LIMIT = 3    # Backup limit using session cookies
+GLOBAL_DAILY_LIMIT = 200   # Max total requests per day (increased for video launch)
+EMERGENCY_STOP = False     # Manual circuit breaker
 
 def get_current_day_key():
     """Get current day as YYYY-MM-DD for tracking"""
     return datetime.now().strftime("%Y-%m-%d")
+
+def get_session_id(request):
+    """Get or create session ID from cookies"""
+    session_id = request.cookies.get('guard_session')
+    if not session_id:
+        # Create new session ID
+        import uuid
+        session_id = str(uuid.uuid4())[:16]
+    return session_id
 
 def check_emergency_stop():
     """Check if emergency stop is enabled"""
@@ -113,36 +120,64 @@ def check_emergency_stop():
 def check_global_daily_limit():
     """Check if global daily limit exceeded. Returns (allowed, remaining)"""
     day_key = get_current_day_key()
-    current_usage = daily_usage[day_key]
+    current_usage = global_daily_usage[day_key]
 
-    if current_usage >= DAILY_GLOBAL_LIMIT:
+    if current_usage >= GLOBAL_DAILY_LIMIT:
         return False, 0
 
-    return True, DAILY_GLOBAL_LIMIT - current_usage
+    return True, GLOBAL_DAILY_LIMIT - current_usage
 
-
-def check_rate_limit(ip):
-    """Check if IP has exceeded monthly limit. Returns (allowed, remaining)"""
-    month_key = get_current_month_key()
-    current_usage = ip_usage[ip][month_key]
-
-    if current_usage >= MONTHLY_LIMIT:
-        return False, 0
-
-    return True, MONTHLY_LIMIT - current_usage
-
-def increment_usage(ip):
-    """Increment usage counters for IP and global daily"""
-    month_key = get_current_month_key()
+def check_ip_daily_limit(ip):
+    """Check if IP has exceeded daily limit. Returns (allowed, remaining)"""
     day_key = get_current_day_key()
-    now = datetime.now().timestamp()
+    current_usage = ip_daily_usage[ip][day_key]
+
+    if current_usage >= IP_DAILY_LIMIT:
+        return False, 0
+
+    return True, IP_DAILY_LIMIT - current_usage
+
+def check_session_daily_limit(session_id):
+    """Check if session has exceeded daily limit. Returns (allowed, remaining)"""
+    day_key = get_current_day_key()
+    current_usage = session_usage[session_id][day_key]
+
+    if current_usage >= SESSION_DAILY_LIMIT:
+        return False, 0
+
+    return True, SESSION_DAILY_LIMIT - current_usage
+
+def log_request(ip, session_id, endpoint, user_plan, success=True, error=None):
+    """Log request for monitoring"""
+    global request_log
+
+    log_entry = {
+        'timestamp': datetime.now().isoformat(),
+        'ip': ip,
+        'session_id': session_id,
+        'endpoint': endpoint,
+        'user_plan': user_plan,
+        'success': success,
+        'error': error,
+        'day': get_current_day_key()
+    }
+
+    request_log.append(log_entry)
+
+    # Keep only last 1000 requests to prevent memory issues
+    if len(request_log) > 1000:
+        request_log = request_log[-1000:]
+
+def increment_usage(ip, session_id):
+    """Increment usage counters for IP, session, and global daily"""
+    day_key = get_current_day_key()
 
     # Update all counters
-    ip_usage[ip][month_key] += 1
-    ip_last_request[ip] = now
-    daily_usage[day_key] += 1
+    ip_daily_usage[ip][day_key] += 1
+    session_usage[session_id][day_key] += 1
+    global_daily_usage[day_key] += 1
 
-    return MONTHLY_LIMIT - ip_usage[ip][month_key]
+    return IP_DAILY_LIMIT - ip_daily_usage[ip][day_key]
 
 @app.route('/api/guard', methods=['POST'])
 def guard_endpoint():
@@ -168,16 +203,25 @@ def guard_endpoint():
             # Handle multiple IPs in X-Forwarded-For (take the first one)
             client_ip = client_ip.split(',')[0].strip()
 
+        # Get session ID for backup rate limiting
+        session_id = get_session_id(request)
+
         # Plan detection and rate limiting
         user_plan = get_plan(request)
-        logger.info(f"User plan: {user_plan} for {client_ip}")
+        logger.info(f"User plan: {user_plan} for IP: {client_ip}, Session: {session_id}")
+
+        # Initialize response for session cookie
+        response_data = {}
+        should_set_session_cookie = not request.cookies.get('guard_session')
 
         if user_plan in ['admin', 'paid']:
             logger.info(f"{user_plan.title()} access, bypassing rate limits for {client_ip}")
+            log_request(client_ip, session_id, '/api/guard', user_plan, success=True)
         else:
             # Check 1: Emergency stop (manual circuit breaker)
             if check_emergency_stop():
                 logger.warning("Emergency stop activated - service temporarily disabled")
+                log_request(client_ip, session_id, '/api/guard', user_plan, success=False, error='emergency_stop')
                 return jsonify({
                     'error': 'service_temporarily_disabled',
                     'message': "The Guard Table is temporarily unavailable due to high demand. Please email us at thegoodneighborguard@gmail.com and we'll help you directly."
@@ -186,20 +230,31 @@ def guard_endpoint():
             # Check 2: Global daily limit (protect against viral traffic)
             global_allowed, global_remaining = check_global_daily_limit()
             if not global_allowed:
-                logger.warning(f"Global daily limit reached: {DAILY_GLOBAL_LIMIT}")
+                logger.warning(f"Global daily limit reached: {GLOBAL_DAILY_LIMIT}")
+                log_request(client_ip, session_id, '/api/guard', user_plan, success=False, error='global_limit_exceeded')
                 return jsonify({
                     'error': 'daily_limit_reached',
                     'message': "We've hit our daily response limit but we're here to help. Email us at thegoodneighborguard@gmail.com with your situation and we'll respond within 24 hours."
                 }), 429
 
-            # Check 3: Monthly limit per IP (original limit)
-            monthly_allowed, monthly_remaining = check_rate_limit(client_ip)
-            if not monthly_allowed:
-                logger.warning(f"Monthly limit exceeded for IP: {client_ip}")
-                return jsonify({
-                    'error': 'monthly_limit_reached',
-                    'message': "You've used your 5 free responses this month. Need more help? Email us at thegoodneighborguard@gmail.com — we'll figure it out together."
-                }), 429
+            # Check 3: IP daily limit (3 free requests per day per IP)
+            ip_allowed, ip_remaining = check_ip_daily_limit(client_ip)
+            if not ip_allowed:
+                # Check 4: Session backup limit (in case of shared IP)
+                session_allowed, session_remaining = check_session_daily_limit(session_id)
+                if not session_allowed:
+                    logger.warning(f"Daily limit exceeded for IP {client_ip} and session {session_id}")
+                    log_request(client_ip, session_id, '/api/guard', user_plan, success=False, error='daily_limit_exceeded')
+                    return jsonify({
+                        'error': 'daily_limit_reached',
+                        'message': "You've used your free requests for today. Come back tomorrow or upgrade for unlimited access."
+                    }), 429
+                else:
+                    # IP limit exceeded but session still has requests
+                    logger.info(f"IP {client_ip} exceeded limit, using session {session_id} backup ({session_remaining} remaining)")
+
+            # Log successful request before processing
+            log_request(client_ip, session_id, '/api/guard', user_plan, success=True)
 
         if not client:
             return jsonify({'error': 'Service temporarily unavailable'}), 503
@@ -388,7 +443,7 @@ Situation: {rant}"""
 
             # Increment usage and add remaining count (only for free users)
             if user_plan == 'free':
-                remaining_after = increment_usage(client_ip)
+                remaining_after = increment_usage(client_ip, session_id)
                 result['remaining_responses'] = remaining_after
             else:
                 result['remaining_responses'] = 'unlimited'
@@ -398,7 +453,14 @@ Situation: {rant}"""
             result['version'] = VERSION
 
             logger.info(f"Successfully generated response. Plan: {user_plan}, Remaining for {client_ip}: {result['remaining_responses']}")
-            return jsonify(result)
+
+            # Create response and set session cookie if needed
+            response = jsonify(result)
+            if should_set_session_cookie:
+                response.set_cookie('guard_session', session_id, max_age=86400, secure=True, httponly=True)  # 24 hour cookie
+                logger.info(f"Set session cookie for {client_ip}: {session_id}")
+
+            return response
         except json.JSONDecodeError:
             logger.error(f"Failed to parse JSON response: {response_text[:200]}")
             return jsonify({'error': 'Something went wrong — try again'}), 500
@@ -587,9 +649,60 @@ def admin_status():
     day_key = get_current_day_key()
     return jsonify({
         'emergency_stop': EMERGENCY_STOP,
-        'daily_usage': daily_usage[day_key],
-        'daily_limit': DAILY_GLOBAL_LIMIT,
-        'daily_remaining': DAILY_GLOBAL_LIMIT - daily_usage[day_key]
+        'global_daily_usage': global_daily_usage[day_key],
+        'global_daily_limit': GLOBAL_DAILY_LIMIT,
+        'global_daily_remaining': GLOBAL_DAILY_LIMIT - global_daily_usage[day_key],
+        'ip_daily_limit': IP_DAILY_LIMIT,
+        'session_daily_limit': SESSION_DAILY_LIMIT
+    })
+
+@app.route('/admin/usage', methods=['GET'])
+def admin_usage():
+    """Admin usage endpoint - detailed usage statistics with password protection"""
+    # Check admin authorization
+    auth_header = request.headers.get('Authorization')
+    admin_password = os.getenv('GUARD_ADMIN_PASSWORD', 'admin123')  # Set better password in env
+
+    if not auth_header or auth_header != f'Bearer {admin_password}':
+        return jsonify({'error': 'Unauthorized - password required'}), 401
+
+    day_key = get_current_day_key()
+
+    # Calculate totals
+    total_requests = sum(global_daily_usage.values())
+    requests_today = global_daily_usage[day_key]
+
+    # Calculate requests this week (last 7 days)
+    from datetime import datetime, timedelta
+    week_total = 0
+    for i in range(7):
+        date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+        week_total += global_daily_usage[date]
+
+    # Check if we've hit the threshold
+    if total_requests >= 500:
+        logger.warning("🚨 PAID TIER THRESHOLD REACHED - Total requests: {}".format(total_requests))
+
+    # Get recent request logs (last 50)
+    recent_logs = request_log[-50:] if request_log else []
+
+    # Calculate unique IPs today
+    unique_ips_today = len(set(ip for ip, day_usage in ip_daily_usage.items() if day_usage.get(day_key, 0) > 0))
+
+    return jsonify({
+        'total_requests': total_requests,
+        'requests_today': requests_today,
+        'requests_this_week': week_total,
+        'unique_ips_today': unique_ips_today,
+        'threshold_status': '🚨 PAID TIER THRESHOLD REACHED' if total_requests >= 500 else 'Below threshold',
+        'limits': {
+            'ip_daily_limit': IP_DAILY_LIMIT,
+            'global_daily_limit': GLOBAL_DAILY_LIMIT,
+            'threshold': 500
+        },
+        'recent_requests': recent_logs,
+        'daily_breakdown': dict(global_daily_usage),
+        'timestamp': datetime.now().isoformat()
     })
 
 @app.route('/<path:path>')
