@@ -485,13 +485,61 @@ def thought_partner_endpoint():
         if not message.strip():
             return jsonify({'error': 'Please share what\'s on your mind'}), 400
 
-        # Rate limiting (same as guard endpoint but separate counters)
+        # Rate limiting (same as guard endpoint)
         client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         if client_ip and ',' in client_ip:
             client_ip = client_ip.split(',')[0].strip()
 
+        # Get session ID for backup rate limiting
+        session_id = get_session_id(request)
+
         user_plan = get_plan(request)
-        logger.info(f"Thought Partner - User plan: {user_plan} for {client_ip}")
+        logger.info(f"Thought Partner - User plan: {user_plan} for IP: {client_ip}, Session: {session_id}")
+
+        # Initialize response for session cookie
+        should_set_session_cookie = not request.cookies.get('guard_session')
+
+        if user_plan in ['admin', 'paid']:
+            logger.info(f"Thought Partner - {user_plan.title()} access, bypassing rate limits for {client_ip}")
+            log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=True)
+        else:
+            # Check 1: Emergency stop (manual circuit breaker)
+            if check_emergency_stop():
+                logger.warning("Emergency stop activated - thought partner temporarily disabled")
+                log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=False, error='emergency_stop')
+                return jsonify({
+                    'error': 'service_temporarily_disabled',
+                    'message': "The Thought Partner is temporarily unavailable due to high demand. Please email us at thegoodneighborguard@gmail.com and we'll help you directly."
+                }), 503
+
+            # Check 2: Global daily limit (protect against viral traffic)
+            global_allowed, global_remaining = check_global_daily_limit()
+            if not global_allowed:
+                logger.warning(f"Global daily limit reached: {GLOBAL_DAILY_LIMIT}")
+                log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=False, error='global_limit_exceeded')
+                return jsonify({
+                    'error': 'daily_limit_reached',
+                    'message': "We've hit our daily response limit but we're here to help. Email us at thegoodneighborguard@gmail.com with your situation and we'll respond within 24 hours."
+                }), 429
+
+            # Check 3: IP daily limit (3 free requests per day per IP)
+            ip_allowed, ip_remaining = check_ip_daily_limit(client_ip)
+            if not ip_allowed:
+                # Check 4: Session backup limit (in case of shared IP)
+                session_allowed, session_remaining = check_session_daily_limit(session_id)
+                if not session_allowed:
+                    logger.warning(f"Daily limit exceeded for IP {client_ip} and session {session_id}")
+                    log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=False, error='daily_limit_exceeded')
+                    return jsonify({
+                        'error': 'daily_limit_reached',
+                        'message': "You've used your free requests for today. Come back tomorrow or upgrade for unlimited access."
+                    }), 429
+                else:
+                    # IP limit exceeded but session still has requests
+                    logger.info(f"IP {client_ip} exceeded limit, using session {session_id} backup ({session_remaining} remaining)")
+
+            # Log successful request before processing
+            log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=True)
 
         if not client:
             return jsonify({'error': 'Service temporarily unavailable'}), 503
@@ -558,12 +606,29 @@ You are here to amplify their thinking, not replace it."""
 
         response_text = response.content[0].text.strip()
 
-        logger.info(f"Thought Partner response generated successfully for {client_ip}")
-
-        return jsonify({
+        # Increment usage and add remaining count (only for free users)
+        result = {
             'response': response_text,
             'version': VERSION
-        })
+        }
+
+        if user_plan == 'free':
+            remaining_after = increment_usage(client_ip, session_id)
+            result['remaining_responses'] = remaining_after
+        else:
+            result['remaining_responses'] = 'unlimited'
+
+        result['plan'] = user_plan
+
+        logger.info(f"Thought Partner response generated successfully for {client_ip}")
+
+        # Create response and set session cookie if needed
+        response = jsonify(result)
+        if should_set_session_cookie:
+            response.set_cookie('guard_session', session_id, max_age=86400, secure=True, httponly=True)  # 24 hour cookie
+            logger.info(f"Set session cookie for {client_ip}: {session_id}")
+
+        return response
 
     except Exception as e:
         import traceback
