@@ -49,12 +49,6 @@ const LandingScreen = ({ onGetHelp }) => {
           >
             🧠 I need perspective
           </button>
-          <button
-            className="btn btn-research"
-            onClick={() => onGetHelp('research')}
-          >
-            📊 Research & Studies
-          </button>
         </div>
       </div>
       <div className="landing-footer">

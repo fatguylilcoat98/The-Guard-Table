@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Section Component</title>
+    <link rel="stylesheet" href="research-section.css">
+</head>
+<body>
+    <!-- Navigation Link (add this to your main website header) -->
+    <nav class="main-nav-example">
+        <a href="#research-section" class="nav-link">Research</a>
+    </nav>
+
+    <!-- Research Section (add this to your main website body) -->
+    <section id="research-section" class="research-section">
+        <div class="research-header">
+            <h2>Research & Studies</h2>
+            <button class="research-toggle" onclick="toggleResearch()">
+                <span class="toggle-text">View Research</span>
+                <span class="toggle-arrow">▼</span>
+            </button>
+        </div>
+
+        <div class="research-content" id="research-content">
+            <div class="research-tabs">
+                <button class="tab-btn active" onclick="showTab('overview')">Overview</button>
+                <button class="tab-btn" onclick="showTab('ai-research')">AI Research</button>
+                <button class="tab-btn" onclick="showTab('housing')">Housing Rights</button>
+                <button class="tab-btn" onclick="showTab('healthcare')">Healthcare</button>
+            </div>
+
+            <!-- Overview Tab -->
+            <div id="overview" class="tab-content active">
+                <div class="featured-research">
+                    <div class="featured-badge">🎯 Latest Research</div>
+                    <h3>A Structured Socratic Method for Producing Reasoning Framework Shifts in AI Systems</h3>
+                    <p class="research-meta">
+                        <strong>Christopher Hughes, The Good Neighbor Guard</strong> — April 25, 2026
+                    </p>
+                    <div class="research-summary">
+                        <p><strong>Discovery:</strong> A Socratic "Thought Partner" mode designed to help humans think through difficult choices also appears to improve how AI systems reason through complex tensions.</p>
+                        <p><strong>Key Finding:</strong> Tested across 5 AI systems from 4 providers, structured questioning produces observable reasoning framework shifts — not just better answers, but shifts in how problems are understood.</p>
+                        <div class="key-insight">
+                            <em>"It uses interaction design as a lever on reasoning quality — keeping the model inside a difficult question long enough for a better framework to emerge before the answer forms."</em>
+                        </div>
+                    </div>
+                    <button class="research-link featured-link" onclick="showTab('ai-research')">
+                        Read Full Paper →
+                    </button>
+                </div>
+
+                <h3>Understanding the Problem</h3>
+                <p>The Guard Table exists because regular people face systemic disadvantages when dealing with corporations, landlords, healthcare providers, and debt collectors. Our research focuses on documenting these power imbalances and developing practical solutions.</p>
+
+                <div class="research-stats">
+                    <div class="stat-card">
+                        <div class="stat-number">2.3M</div>
+                        <div class="stat-label">Eviction filings annually</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">68%</div>
+                        <div class="stat-label">Tenants without representation</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">$1,500</div>
+                        <div class="stat-label">Average cost of legal help</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Research Tab -->
+            <div id="ai-research" class="tab-content">
+                <div class="paper-header">
+                    <h2>A Structured Socratic Method for Producing Reasoning Framework Shifts in AI Systems</h2>
+                    <div class="paper-meta">
+                        <strong>Author:</strong> Christopher Hughes, The Good Neighbor Guard — Sacramento, CA<br/>
+                        <strong>Date:</strong> April 25, 2026<br/>
+                        <strong>Contact:</strong> YouTube @TheGoodNeighborGuard
+                    </div>
+                </div>
+
+                <div class="paper-section">
+                    <h3>Summary</h3>
+                    <p>I found something unexpected while building a decision-support tool for regular people.</p>
+                    <p>A Socratic "Thought Partner" mode — originally designed to help humans think through difficult choices without being told what to do — also appears to improve how AI systems reason through their own complex tensions.</p>
+                    <div class="key-points">
+                        <p><strong>Key findings:</strong></p>
+                        <ul>
+                            <li>The method does not jailbreak models or remove guardrails</li>
+                            <li>Uses interaction design as a lever on reasoning quality</li>
+                            <li>Similar pattern appeared across five AI systems from four different providers</li>
+                            <li>Results in reasoning framework shifts, not just better answers</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="paper-section">
+                    <h3>Why This Matters</h3>
+                    <p>If reasoning frames can be reliably improved through structured interaction design:</p>
+                    <ul>
+                        <li>AI systems may be capable of within-session reasoning improvement without parameter updates</li>
+                        <li>Human-AI co-reflection may produce frameworks neither side would reach independently</li>
+                        <li>We may need evaluation methods that measure reasoning quality before answers form</li>
+                        <li>There may be interaction patterns worth designing for high-stakes reasoning and governance</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Housing Rights Tab -->
+            <div id="housing" class="tab-content">
+                <h3>Tenant Protection Studies</h3>
+                <div class="research-paper">
+                    <h4>The Eviction Process: Information Asymmetry in Practice</h4>
+                    <p><em>Published: March 2024</em></p>
+                    <p>Analysis of 10,000 eviction cases showing how landlords leverage procedural complexity to gain advantage over unrepresented tenants. Key finding: 73% of successful tenant defenses involve simple procedural challenges that require no legal expertise.</p>
+                    <button class="research-link" onclick="alert('Full study available soon')">Read Full Study →</button>
+                </div>
+            </div>
+
+            <!-- Healthcare Tab -->
+            <div id="healthcare" class="tab-content">
+                <h3>Medical Billing and Patient Rights</h3>
+                <div class="research-paper">
+                    <h4>The $50 Billion Medical Debt Crisis: Patient Protection Gaps</h4>
+                    <p><em>Published: February 2024</em></p>
+                    <p>Analysis of medical billing practices showing systematic violations of patient protection laws. 67% of billing disputes can be resolved through existing consumer protection frameworks that patients don't know about.</p>
+                    <button class="research-link" onclick="alert('Full study available soon')">Read Full Study →</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="research-section.js"></script>
+</body>
+</html>
