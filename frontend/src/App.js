@@ -12,6 +12,7 @@ import CategoryScreen from './components/CategoryScreen';
 import InputScreen from './components/InputScreen';
 import ResultsScreen from './components/ResultsScreen';
 import ThoughtPartnerScreen from './components/ThoughtPartnerScreen';
+import ResearchScreen from './components/ResearchScreen';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState('landing');
@@ -42,6 +43,8 @@ function App() {
       setCurrentScreen('category');
     } else if (mode === 'thought') {
       setCurrentScreen('thought-partner');
+    } else if (mode === 'research') {
+      setCurrentScreen('research');
     }
   };
 
@@ -145,6 +148,8 @@ function App() {
     switch (currentScreen) {
       case 'landing':
         return <LandingScreen onGetHelp={handleGetHelp} />;
+      case 'research':
+        return <ResearchScreen onBack={() => setCurrentScreen('landing')} />;
       case 'thought-partner':
         return <ThoughtPartnerScreen
           onBack={() => setCurrentScreen('landing')}
