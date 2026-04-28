@@ -12,6 +12,7 @@ import CategoryScreen from './components/CategoryScreen';
 import InputScreen from './components/InputScreen';
 import ResultsScreen from './components/ResultsScreen';
 import ThoughtPartnerScreen from './components/ThoughtPartnerScreen';
+import { streamGuardResponse, parseGuardSections } from './guardStream';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState('landing');
@@ -66,37 +67,59 @@ function App() {
     setUserState(state);
     setCurrentInput(input);
     setIsLoading(true);
+    setResults(null);
     setCurrentScreen('results');
 
-    // Call the backend API
+    let buffer = '';
     try {
-      const response = await fetch('/api/guard', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      await streamGuardResponse({
+        body: {
           category: selectedCategory,
-          state: state,
+          state,
           rant: input,
-          ...(adminToken && { admin_token: adminToken })
-        }),
+          ...(adminToken && { admin_token: adminToken }),
+        },
+        onEvent: (evt) => {
+          if (evt.type === 'text') {
+            buffer += evt.chunk;
+            const parsed = parseGuardSections(buffer);
+            if (parsed.wait.length || parsed.leverage || parsed.guard_steps.length) {
+              setIsLoading(false);
+              setResults({
+                wait: parsed.wait,
+                leverage: parsed.leverage,
+                guard_steps: parsed.guard_steps,
+                streaming: true,
+              });
+            }
+          } else if (evt.type === 'done') {
+            const parsed = parseGuardSections(buffer);
+            const leverage = evt.citation_warning
+              ? `${parsed.leverage}\n\nNote: ${evt.citation_warning}`
+              : parsed.leverage;
+            setIsLoading(false);
+            setResults({
+              wait: parsed.wait,
+              leverage,
+              guard_steps: parsed.guard_steps,
+              plan: evt.plan,
+              remaining_responses: evt.remaining_responses,
+              version: evt.version,
+              streaming: false,
+            });
+          } else if (evt.type === 'error') {
+            setIsLoading(false);
+            setResults({ error: 'Something went wrong — try again' });
+          }
+        },
+        onHttpError: () => {
+          setIsLoading(false);
+          setResults({ error: 'Something went wrong — try again' });
+        },
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setResults(data);
-      } else {
-        setResults({
-          error: "Something went wrong — try again"
-        });
-      }
     } catch (error) {
-      setResults({
-        error: "Something went wrong — try again"
-      });
-    } finally {
       setIsLoading(false);
+      setResults({ error: 'Something went wrong — try again' });
     }
   };
 

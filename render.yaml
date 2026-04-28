@@ -5,7 +5,7 @@ services:
     env: python
     plan: starter
     buildCommand: "pip install -r requirements.txt && npm install && npm run build-frontend"
-    startCommand: "cd backend && gunicorn -b 0.0.0.0:$PORT app:app"
+    startCommand: "cd backend && gunicorn -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 app:app"
     healthCheckPath: /health
     envVars:
       - key: ANTHROPIC_API_KEY
