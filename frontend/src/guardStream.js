@@ -10,7 +10,9 @@ export async function streamGuardResponse({ body, onEvent, onHttpError }) {
   });
 
   if (!response.ok) {
-    if (onHttpError) onHttpError(response.status);
+    let errBody = null;
+    try { errBody = await response.json(); } catch (e) { /* non-JSON body */ }
+    if (onHttpError) onHttpError(response.status, errBody);
     return;
   }
 

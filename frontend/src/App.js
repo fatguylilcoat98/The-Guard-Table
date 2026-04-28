@@ -112,9 +112,10 @@ function App() {
             setResults({ error: 'Something went wrong — try again' });
           }
         },
-        onHttpError: () => {
+        onHttpError: (status, errBody) => {
           setIsLoading(false);
-          setResults({ error: 'Something went wrong — try again' });
+          const msg = (errBody && errBody.message) || 'Something went wrong — try again';
+          setResults({ error: msg });
         },
       });
     } catch (error) {
