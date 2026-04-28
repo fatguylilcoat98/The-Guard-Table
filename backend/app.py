@@ -5,7 +5,7 @@ Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
 Truth · Safety · We Got Your Back
 """
 
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory, send_file, Response, stream_with_context
 from flask_cors import CORS
 from collections import defaultdict
 import os
@@ -356,15 +356,19 @@ SAFETY GUARDRAILS:
 Never mention that you are an AI.
 Always be specific to their state when possible.
 
-Return as clean JSON only:
+OUTPUT FORMAT — plain text only, using these exact section markers on their own lines. No JSON. No markdown. No code fences. Three lines under WAIT (one per line), one full message under LEVERAGE, exactly three steps under GUARD_STEPS (one per line).
 
-CRITICAL: Return raw JSON only. No markdown. No code fences. No backticks. Just the JSON object starting with { and ending with }.
-
-{
-  "wait": ["line1", "line2", "line3"],
-  "leverage": "full message text",
-  "guard_steps": ["step1", "step2", "step3"]
-}"""
+===WAIT===
+first line
+second line
+third line
+===LEVERAGE===
+full lawyer-style message text here
+===GUARD_STEPS===
+Step 1: ...
+Step 2: ...
+Step 3: ...
+"""
 
         user_prompt = f"""Category: {category}
 State: {state}
@@ -372,101 +376,81 @@ Situation: {rant}"""
 
         logger.info(f"Processing request for {state} - {category}")
 
-        # Call Claude API with prompt caching
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            temperature=0.3,
-            system=[{
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"}
-            }],
-            messages=[
-                {
-                    "role": "user",
-                    "content": user_prompt
-                }
-            ]
-        )
-
-        # Strip markdown code fences if present
-        response_text = response.content[0].text.strip()
-        if response_text.startswith('```'):
-            response_text = response_text.split('```')[1]
-            if response_text.startswith('json'):
-                response_text = response_text[4:]
-            response_text = response_text.strip()
-
-        # Parse JSON response
-        try:
-            result = json.loads(response_text)
-
-            # Two-model verification layer with Haiku 4.5
+        def generate():
+            full_text = ''
             try:
-                # Verification 1: Check law citations
-                citation_check = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=200,
-                    temperature=0.1,
-                    messages=[{
-                        "role": "user",
-                        "content": f"You are a legal citation checker. Review this response and verify the law citations look real and correctly formatted for the stated state. Return JSON: {{\"citations_valid\": true/false, \"concern\": \"string or null\"}}\n\nResponse to check:\n{response_text}"
-                    }]
-                )
+                yield f"data: {json.dumps({'type': 'meta', 'plan': user_plan, 'version': VERSION})}\n\n"
 
-                # Verification 2: Check for hedging language
-                hedge_check = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=200,
-                    temperature=0.1,
-                    messages=[{
-                        "role": "user",
-                        "content": f"Review this response for hedge words: might, may, could, possibly, perhaps. Return JSON: {{\"hedge_free\": true/false, \"flagged_words\": []}}\n\nResponse to check:\n{response_text}"
-                    }]
-                )
+                with client.messages.stream(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=2000,
+                    temperature=0.3,
+                    system=[{
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"}
+                    }],
+                    messages=[{"role": "user", "content": user_prompt}],
+                ) as stream:
+                    for chunk in stream.text_stream:
+                        if chunk:
+                            full_text += chunk
+                            yield f"data: {json.dumps({'type': 'text', 'chunk': chunk})}\n\n"
 
-                # Parse verification results
-                citation_result = json.loads(citation_check.content[0].text.strip())
-                hedge_result = json.loads(hedge_check.content[0].text.strip())
+                # Citation verification (best-effort, post-stream)
+                citation_warning = None
+                try:
+                    check = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=200,
+                        temperature=0.1,
+                        messages=[{
+                            "role": "user",
+                            "content": (
+                                "You are a legal citation checker. Review this response and "
+                                "verify the law citations look real and correctly formatted for "
+                                "the stated state. Return JSON: "
+                                "{\"citations_valid\": true/false, \"concern\": \"string or null\"}"
+                                f"\n\nResponse to check:\n{full_text}"
+                            )
+                        }]
+                    )
+                    citation_result = json.loads(check.content[0].text.strip())
+                    if not citation_result.get('citations_valid', True):
+                        citation_warning = (
+                            "verify this citation with a local legal aid organization "
+                            "before relying on it."
+                        )
+                    logger.info(f"Verification - Citations valid: {citation_result.get('citations_valid')}")
+                except Exception as verify_error:
+                    logger.warning(f"Verification layer failed: {verify_error}")
 
-                # Add citation warning if invalid
-                if not citation_result.get('citations_valid', True):
-                    if 'leverage' in result:
-                        result['leverage'] += "\n\nNote: verify this citation with a local legal aid organization before relying on it."
+                if user_plan == 'free':
+                    remaining = increment_usage(client_ip, session_id)
+                else:
+                    remaining = 'unlimited'
 
-                logger.info(f"Verification - Citations valid: {citation_result.get('citations_valid')}, Hedge-free: {hedge_result.get('hedge_free')}")
+                yield f"data: {json.dumps({'type': 'done', 'plan': user_plan, 'remaining_responses': remaining, 'citation_warning': citation_warning, 'version': VERSION})}\n\n"
+                logger.info(f"Stream complete. Plan: {user_plan}, IP: {client_ip}, Remaining: {remaining}")
+            except Exception as stream_error:
+                logger.error(f"Stream error: {traceback.format_exc()}")
+                yield f"data: {json.dumps({'type': 'error', 'message': str(stream_error)})}\n\n"
 
-            except Exception as verify_error:
-                logger.warning(f"Verification layer failed: {str(verify_error)}")
-                # Continue without verification if it fails
-
-            # Increment usage and add remaining count (only for free users)
-            if user_plan == 'free':
-                remaining_after = increment_usage(client_ip, session_id)
-                result['remaining_responses'] = remaining_after
-            else:
-                result['remaining_responses'] = 'unlimited'
-
-            # Add plan and version information to response
-            result['plan'] = user_plan
-            result['version'] = VERSION
-
-            logger.info(f"Successfully generated response. Plan: {user_plan}, Remaining for {client_ip}: {result['remaining_responses']}")
-
-            # Create response and set session cookie if needed
-            response = jsonify(result)
-            if should_set_session_cookie:
-                response.set_cookie('guard_session', session_id, max_age=86400, secure=True, httponly=True)  # 24 hour cookie
-                logger.info(f"Set session cookie for {client_ip}: {session_id}")
-
-            return response
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON response: {response_text[:200]}")
-            return jsonify({'error': 'Something went wrong — try again'}), 500
+        response = Response(
+            stream_with_context(generate()),
+            mimetype='text/event-stream',
+            headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive',
+            },
+        )
+        if should_set_session_cookie:
+            response.set_cookie('guard_session', session_id, max_age=86400, secure=True, httponly=True)
+            logger.info(f"Set session cookie for {client_ip}: {session_id}")
+        return response
 
     except Exception as e:
-        import traceback
         logger.error(f"FULL ERROR: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { streamGuardResponse, parseGuardSections } from '../guardStream';
 
 // FAQ data for each category
 const FAQ_DATA = {
@@ -48,10 +49,6 @@ const FAQ_DATA = {
 };
 
 const ResultsScreen = ({ results, category, isLoading, adminToken, onStartNew, onBack }) => {
-  const [showWait, setShowWait] = useState(false);
-  const [showLeverage, setShowLeverage] = useState(false);
-  const [showGuard, setShowGuard] = useState(false);
-  const [typingMessage, setTypingMessage] = useState('');
   const [copyButtonText, setCopyButtonText] = useState('Copy to clipboard');
   const [expandedFAQ, setExpandedFAQ] = useState({});
   const [adjustingTone, setAdjustingTone] = useState('');
@@ -61,7 +58,6 @@ const ResultsScreen = ({ results, category, isLoading, adminToken, onStartNew, o
   const [followUpText, setFollowUpText] = useState('');
 
   useEffect(() => {
-    // Loading text cycling
     if (isLoading) {
       const loadingMessages = [
         'Reading your situation...',
@@ -77,44 +73,11 @@ const ResultsScreen = ({ results, category, isLoading, adminToken, onStartNew, o
     }
   }, [isLoading]);
 
-  useEffect(() => {
-    if (!results || results.error) return;
-
-    // Two second pause, then show everything in sequence
-    const timer1 = setTimeout(() => {
-      setShowWait(true);
-    }, 2000);
-
-    const timer2 = setTimeout(() => {
-      setShowLeverage(true);
-      // Start typing animation for leverage message
-      if (results.leverage) {
-        typeMessage(results.leverage);
-      }
-    }, 4000);
-
-    const timer3 = setTimeout(() => {
-      setShowGuard(true);
-    }, 6000);
-
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-      clearTimeout(timer3);
-    };
-  }, [results]);
-
-  const typeMessage = (message) => {
-    let i = 0;
-    const speed = 30; // milliseconds per character
-    const timer = setInterval(() => {
-      setTypingMessage(message.slice(0, i));
-      i++;
-      if (i > message.length) {
-        clearInterval(timer);
-      }
-    }, speed);
-  };
+  const isStreaming = !!(results && results.streaming);
+  const hasWait = !!(results && results.wait && results.wait.length);
+  const hasLeverage = !!(results && results.leverage);
+  const hasGuard = !!(results && results.guard_steps && results.guard_steps.length);
+  const isComplete = !!(results && !results.error && !results.streaming);
 
   const handleCopy = async () => {
     const textToCopy = adjustedLeverage || results.leverage;
@@ -168,25 +131,22 @@ const ResultsScreen = ({ results, category, isLoading, adminToken, onStartNew, o
         ? 'Rewrite this message with more direct, firm language. More assertive.'
         : 'Rewrite this message with more professional, measured language. Less confrontational.';
 
-      const response = await fetch('/api/guard', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          category: category,
-          state: 'California', // Use stored state if available
+      let buffer = '';
+      await streamGuardResponse({
+        body: {
+          category,
+          state: 'California',
           rant: `${instruction}\n\nOriginal message:\n${results.leverage}`,
-          ...(adminToken && { admin_token: adminToken })
-        }),
+          ...(adminToken && { admin_token: adminToken }),
+        },
+        onEvent: (evt) => {
+          if (evt.type === 'text') {
+            buffer += evt.chunk;
+            const parsed = parseGuardSections(buffer);
+            if (parsed.leverage) setAdjustedLeverage(parsed.leverage);
+          }
+        },
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.leverage) {
-          setAdjustedLeverage(data.leverage);
-        }
-      }
     } catch (error) {
       console.error('Tone adjustment failed:', error);
     } finally {
@@ -247,7 +207,7 @@ Truth · Safety · We Got Your Back
     setFollowUpText('');
   };
 
-  if (isLoading || !results) {
+  if ((isLoading && !results) || !results) {
     return (
       <div className="results-screen">
         <div style={{
@@ -328,7 +288,7 @@ Truth · Safety · We Got Your Back
       )}
       <div className="results-container">
         {/* WAIT BLOCK */}
-        {showWait && (
+        {hasWait && (
           <div className="wait-block">
             <div className="wait-header">
               ⛔ WAIT.
@@ -342,7 +302,7 @@ Truth · Safety · We Got Your Back
         )}
 
         {/* LEVERAGE BLOCK */}
-        {showLeverage && (
+        {hasLeverage && (
           <div className="leverage-block">
             <div className="leverage-header">
               Here's what you send. Right now.
@@ -361,7 +321,7 @@ Truth · Safety · We Got Your Back
               margin: '16px 0',
               whiteSpace: 'pre-wrap'
             }}>
-              {adjustedLeverage || typingMessage}
+              {adjustedLeverage || results.leverage}
             </div>
             <div className="leverage-actions" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               <button
@@ -385,7 +345,7 @@ Truth · Safety · We Got Your Back
                 <button
                   className="adjust-btn"
                   onClick={() => adjustTone('stronger')}
-                  disabled={adjustingTone !== ''}
+                  disabled={adjustingTone !== '' || isStreaming}
                   style={{
                     fontSize: '12px',
                     padding: '6px 12px',
@@ -402,7 +362,7 @@ Truth · Safety · We Got Your Back
                 <button
                   className="adjust-btn"
                   onClick={() => adjustTone('softer')}
-                  disabled={adjustingTone !== ''}
+                  disabled={adjustingTone !== '' || isStreaming}
                   style={{
                     fontSize: '12px',
                     padding: '6px 12px',
@@ -557,7 +517,7 @@ Truth · Safety · We Got Your Back
         )}
 
         {/* GUARD BLOCK */}
-        {showGuard && (
+        {hasGuard && (
           <div className="guard-block">
             <div className="guard-header">
               If they ignore this.
@@ -586,7 +546,7 @@ Truth · Safety · We Got Your Back
         )}
 
         {/* PEOPLE ALSO ASK */}
-        {showGuard && category && FAQ_DATA[category] && (
+        {hasGuard && category && FAQ_DATA[category] && (
           <div className="faq-section" style={{
             marginTop: '32px',
             marginBottom: '32px'
@@ -649,7 +609,7 @@ Truth · Safety · We Got Your Back
         )}
 
         {/* ACTIONS */}
-        {showGuard && (
+        {isComplete && (
           <>
             <div className="results-actions">
               <button className="btn" onClick={onStartNew}>
