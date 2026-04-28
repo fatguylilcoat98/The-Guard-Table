@@ -110,7 +110,7 @@ def test_health():
     assert r.status_code == 200
     data = r.json()
     assert data.get('status') == 'healthy'
-    return True, f"Service: {data.get('service')} v{data.get('version')}"
+    return True, f"Service: {data.get('service')} {data.get('version')}"
 
 def test_api_ready():
     r = requests.get(f"{BASE}/api/test", timeout=15)
