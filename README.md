@@ -164,6 +164,29 @@ For boot persistence, wrap that gunicorn command in a systemd unit with
 `Environment=PATHBACK_DB=/var/lib/pathback/pathback.db`. To update:
 `git pull && cd frontend && npm ci && npm run build && cd .. && sudo systemctl restart pathback`.
 
+### Updating from your phone (auto-deploy from GitHub)
+
+`deploy/` contains an auto-updater: a script that pulls new commits,
+rebuilds only what changed, and restarts the service — plus a systemd
+timer that runs it every 5 minutes. Once installed, the workflow is:
+edit any file in the GitHub app (or merge a PR) on `main`, and the
+server updates itself within ~5 minutes. Install (once):
+
+```bash
+chmod +x deploy/pathback-update.sh
+sed -i 's/YOUR_USERNAME/'"$USER"'/g' deploy/pathback-update.service
+sudo cp deploy/pathback-update.service deploy/pathback-update.timer /etc/systemd/system/
+# allow the updater to restart the service without a password prompt:
+echo "$USER ALL=(root) NOPASSWD: /usr/bin/systemctl restart pathback" | sudo tee /etc/sudoers.d/pathback-update
+sudo systemctl daemon-reload
+sudo systemctl enable --now pathback-update.timer
+```
+
+Check it's armed with `systemctl list-timers pathback-update.timer`, and
+watch a deploy with `journalctl -u pathback-update -f`. The updater
+deploys whatever lands on `main`, so treat `main` as production: make
+risky edits on a branch and merge when ready.
+
 ## Deployment — Docker + Cloudflare Tunnel
 
 ### 1. Build and run
