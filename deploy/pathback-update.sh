@@ -15,6 +15,8 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-$HOME/pathback}"
 BRANCH="${BRANCH:-main}"
 SERVICE="${SERVICE:-pathback}"
+# systemd by default; PM2 users: RESTART_CMD="pm2 restart pathback"
+RESTART_CMD="${RESTART_CMD:-sudo systemctl restart $SERVICE}"
 
 cd "$REPO_DIR"
 
@@ -38,5 +40,5 @@ if ! git diff --quiet "$LOCAL" "$REMOTE" -- frontend/; then
     (cd frontend && npm ci --silent && npm run build)
 fi
 
-sudo systemctl restart "$SERVICE"
+bash -c "$RESTART_CMD"
 echo "PathBack deployed at $(git rev-parse --short HEAD)"

@@ -187,6 +187,10 @@ watch a deploy with `journalctl -u pathback-update -f`. The updater
 deploys whatever lands on `main`, so treat `main` as production: make
 risky edits on a branch and merge when ready.
 
+Running under PM2 (`run-pathback.sh`) instead of systemd? Set
+`Environment=RESTART_CMD=pm2 restart pathback` in the service file (and
+drop the sudoers line — PM2 restarts don't need root).
+
 ## Deployment — Docker + Cloudflare Tunnel
 
 ### 1. Build and run
