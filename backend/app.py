@@ -8,7 +8,7 @@ When someone knocks you off course, PathBack helps you stand your ground
 and get back on your path.
 """
 
-from flask import Flask, request, jsonify, send_from_directory, send_file, Response, stream_with_context
+from flask import Flask, request, jsonify, send_from_directory, send_file, Response, stream_with_context, redirect
 from flask_cors import CORS
 import os
 import json
@@ -633,6 +633,23 @@ def stripe_redirect_pages():
     if IS_PRODUCTION:
         return send_file(os.path.join(FRONTEND_BUILD_PATH, 'index.html'))
     return jsonify({'error': 'Frontend not built'}), 404
+
+
+@app.route('/unlock/<secret>', methods=['GET'])
+def unlock(secret):
+    """One-tap unlimited access.
+
+    Visiting /unlock/<secret> — where <secret> matches UNLOCK_SECRET —
+    redirects to the app with the admin token attached, which the frontend
+    stores in localStorage (and strips from the URL). The admin token lives
+    only in server env (UNLOCK_ADMIN_TOKEN), never in the shipped JS, and the
+    secret path keeps this from being a public 'everyone gets unlimited' door.
+    """
+    configured = os.getenv('UNLOCK_SECRET')
+    token = os.getenv('UNLOCK_ADMIN_TOKEN')
+    if configured and token and secret == configured:
+        return redirect(f'/?admin_token={token}', code=302)
+    return jsonify({'error': 'Not found'}), 404
 
 
 def _admin_key_ok(req):

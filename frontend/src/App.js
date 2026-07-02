@@ -260,18 +260,22 @@ function App() {
 
   return (
     <div className="App">
-      {/* Admin Status Text - Only show when admin panel is visible */}
-      {adminToken && showAdminPanel && (
+      {/* Admin Status Text - visible whenever an admin token is active
+          (works on mobile, where the Ctrl+Shift+A panel isn't reachable) */}
+      {adminToken && (
         <div style={{
           position: 'fixed',
           top: '10px',
           right: '10px',
-          color: '#FFD700',
+          color: '#00ff88',
+          background: 'rgba(0,0,0,0.6)',
+          padding: '4px 8px',
+          borderRadius: '6px',
           fontSize: '12px',
           fontWeight: 'bold',
           zIndex: 10000
         }}>
-          admin access
+          ⚡ unlimited
         </div>
       )}
 
