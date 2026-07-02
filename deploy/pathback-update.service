@@ -1,0 +1,20 @@
+# PathBack — auto-update oneshot unit
+# Built by Christopher Hughes · Sacramento, CA · The Good Neighbor Guard
+# Truth · Safety · We Got Your Back
+#
+# Install (replace YOUR_USERNAME in this file first):
+#   sudo cp deploy/pathback-update.service deploy/pathback-update.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now pathback-update.timer
+
+[Unit]
+Description=PathBack auto-update from GitHub
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=YOUR_USERNAME
+Environment=REPO_DIR=/home/YOUR_USERNAME/pathback
+Environment=BRANCH=main
+Environment=SERVICE=pathback
+ExecStart=/home/YOUR_USERNAME/pathback/deploy/pathback-update.sh

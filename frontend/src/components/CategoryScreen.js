@@ -1,5 +1,5 @@
 /*
- * The Guard Table — The Good Neighbor Guard
+ * PathBack — The Good Neighbor Guard
  * Built by Christopher Hughes · Sacramento, CA
  * Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
  * Truth · Safety · We Got Your Back

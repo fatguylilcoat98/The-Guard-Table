@@ -1,5 +1,5 @@
 /*
- * The Guard Table — The Good Neighbor Guard
+ * PathBack — The Good Neighbor Guard
  * Built by Christopher Hughes · Sacramento, CA
  * Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
  * Truth · Safety · We Got Your Back
@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
-const ThoughtPartnerScreen = ({ onBack, onStartNew, onSwitchMode }) => {
+const ThoughtPartnerScreen = ({ onBack, onStartNew, onSwitchMode, accessToken, adminToken }) => {
   const [messages, setMessages] = useState([
     {
       type: 'assistant',
@@ -48,7 +48,9 @@ const ThoughtPartnerScreen = ({ onBack, onStartNew, onSwitchMode }) => {
         },
         body: JSON.stringify({
           message: inputText.trim(),
-          conversation_history: messages
+          conversation_history: messages,
+          ...(adminToken && { admin_token: adminToken }),
+          ...(accessToken && { access_token: accessToken }),
         }),
       });
 
@@ -156,6 +158,10 @@ const ThoughtPartnerScreen = ({ onBack, onStartNew, onSwitchMode }) => {
         </div>
         <div className="tp-input-hint">
           Press Enter to send, Shift+Enter for new line
+        </div>
+        <div style={{ fontSize: '11px', color: '#667788', textAlign: 'center', marginTop: '6px', lineHeight: 1.4 }}>
+          PathBack provides information and drafting help, not legal advice.
+          For legal advice, consult a licensed attorney.
         </div>
       </div>
     </div>

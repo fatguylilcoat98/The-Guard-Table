@@ -1,0 +1,13 @@
+# PathBack — auto-update timer (checks GitHub every 5 minutes)
+# Built by Christopher Hughes · Sacramento, CA · The Good Neighbor Guard
+# Truth · Safety · We Got Your Back
+
+[Unit]
+Description=Check GitHub for PathBack updates every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

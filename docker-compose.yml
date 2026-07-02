@@ -1,0 +1,42 @@
+# PathBack — The Good Neighbor Guard
+# Built by Christopher Hughes · Sacramento, CA
+# Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
+# Truth · Safety · We Got Your Back
+#
+# Home-server deployment behind a Cloudflare Tunnel. See README for the
+# tunnel hostname mapping and Stripe webhook URL steps.
+
+services:
+  pathback:
+    build: .
+    container_name: pathback
+    restart: unless-stopped
+    ports:
+      - "8787:8000"
+    env_file:
+      - .env
+    environment:
+      PATHBACK_DB: /data/pathback.db
+      # Uncomment if you run the ollama service below for the "local" lane:
+      # OLLAMA_URL: http://ollama:11434
+    volumes:
+      - pathback-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Optional: local inference lane (free-tier fallback when Groq is
+  # rate-limited). Needs ~8 GB RAM for qwen2.5:7b. Enable by uncommenting
+  # this service and OLLAMA_URL above, then: docker exec ollama ollama pull qwen2.5:7b
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ollama-models:/root/.ollama
+
+volumes:
+  pathback-data:
+  # ollama-models:
