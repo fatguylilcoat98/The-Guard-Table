@@ -55,3 +55,9 @@ Thumbs.db
 
 # Deployment
 .vercel
+
+# SQLite (PathBack persistence — lives on a volume, never in git)
+*.db
+*.db-wal
+*.db-shm
+backend/data/

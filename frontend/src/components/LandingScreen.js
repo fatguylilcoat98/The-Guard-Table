@@ -1,5 +1,5 @@
 /*
- * The Guard Table — The Good Neighbor Guard
+ * PathBack — The Good Neighbor Guard
  * Built by Christopher Hughes · Sacramento, CA
  * Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
  * Truth · Safety · We Got Your Back
@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 
-const LandingScreen = ({ onGetHelp }) => {
+const LandingScreen = ({ onGetHelp, onUpgrade, hasPass }) => {
   const [showSecondLine, setShowSecondLine] = useState(false);
   const [version, setVersion] = useState('');
 
@@ -29,12 +29,13 @@ const LandingScreen = ({ onGetHelp }) => {
   return (
     <div className="landing-screen">
       <div className="landing-hero">
-        <h1>Every company has a system.</h1>
+        <h1>PathBack</h1>
         {showSecondLine && (
-          <h2>Now so do you.</h2>
+          <h2>Get back on your path.</h2>
         )}
         <p className="landing-subtitle">
-          Tell us what happened. We'll do the rest.
+          When someone knocks you off course, PathBack helps you stand your
+          ground and get back on your path.
         </p>
         <div className="landing-cta">
           <button
@@ -50,9 +51,27 @@ const LandingScreen = ({ onGetHelp }) => {
             🧠 I need perspective
           </button>
         </div>
+        {onUpgrade && !hasPass && (
+          <button
+            type="button"
+            onClick={onUpgrade}
+            style={{
+              background: 'transparent',
+              border: '1px solid #333',
+              borderRadius: '6px',
+              color: '#8899aa',
+              fontSize: '13px',
+              padding: '8px 16px',
+              marginTop: '16px',
+              cursor: 'pointer'
+            }}
+          >
+            ⭐ Go unlimited — from $6.99
+          </button>
+        )}
       </div>
       <div className="landing-footer">
-        The Guard Table — The Good Neighbor Guard
+        PathBack — The Good Neighbor Guard · Truth · Safety · We Got Your Back
         {version && (
           <div style={{
             fontSize: '10px',

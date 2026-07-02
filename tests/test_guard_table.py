@@ -1,5 +1,5 @@
 """
-The Guard Table — Test Suite
+PathBack — Test Suite (17-test E2E baseline)
 The Good Neighbor Guard / Built by Christopher Hughes · Sacramento, CA
 Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
 Truth · Safety · We Got Your Back
@@ -10,7 +10,9 @@ import requests
 import json
 import time
 
-BASE = "https://the-guard-table.onrender.com"
+# Override with e.g. PATHBACK_BASE_URL=http://localhost:8787 to test a
+# local/docker deployment; defaults to the live service.
+BASE = os.environ.get("PATHBACK_BASE_URL", "https://the-guard-table.onrender.com")
 
 # Optional admin token: when set, it's attached to every /api/guard request
 # so the test suite can bypass the daily free-tier rate limit.
@@ -296,7 +298,7 @@ def test_guard_steps_are_actionable():
 # ── RUN ALL ─────────────────────────────────────────────────────
 
 print("\n" + "="*55)
-print("  THE GUARD TABLE — TEST SUITE")
+print("  PATHBACK — TEST SUITE")
 print("  Target:", BASE)
 print("="*55 + "\n")
 

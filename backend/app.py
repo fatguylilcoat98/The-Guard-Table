@@ -1,21 +1,25 @@
 """
-The Guard Table — The Good Neighbor Guard
+PathBack — The Good Neighbor Guard
 Built by Christopher Hughes · Sacramento, CA
 Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
 Truth · Safety · We Got Your Back
+
+When someone knocks you off course, PathBack helps you stand your ground
+and get back on your path.
 """
 
 from flask import Flask, request, jsonify, send_from_directory, send_file, Response, stream_with_context
 from flask_cors import CORS
-from collections import defaultdict
 import os
-import anthropic
-import httpx
 import json
 import logging
 import traceback
 from datetime import datetime
 import subprocess
+
+import gng_db
+import gng_inference
+from gng_payments import payments_bp
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +41,13 @@ def get_version_info():
 
 VERSION = get_version_info()
 
-# Determine if we're in production (Render) or development
+# Shown once on the input screen and as a footer on every generated response.
+DISCLAIMER = ("PathBack provides information and drafting help, not legal advice. "
+              "For legal advice, consult a licensed attorney.")
+
+SUPPORT_EMAIL = "thegoodneighborguard@gmail.com"
+
+# Determine if we're in production (behind gunicorn/Docker) or development
 FRONTEND_BUILD_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'frontend', 'build')
 IS_PRODUCTION = os.path.exists(FRONTEND_BUILD_PATH)
 
@@ -49,59 +59,50 @@ else:
     app = Flask(__name__)
 
 CORS(app)
+app.register_blueprint(payments_bp)
 
-# Initialize Anthropic client
-anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
-if not anthropic_api_key:
-    logger.error("ANTHROPIC_API_KEY environment variable not set")
+# All durable state (counters, passes, usage log, emergency stop) is SQLite —
+# safe across restarts and across multiple gunicorn workers.
+gng_db.init_db()
 
-client = None
-if anthropic_api_key:
-    try:
-        client = anthropic.Anthropic(
-            api_key=anthropic_api_key,
-            http_client=httpx.Client()
-        )
-        logger.info("Anthropic client initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize Anthropic client: {str(e)}")
-        client = None
+# Legacy env-var tokens still honored; the durable store is the admin_tokens
+# table and Stripe-issued access passes in SQLite.
+ADMIN_TOKENS = [t for t in os.getenv('ADMIN_TOKENS', '').split(',') if t]
+PAID_TOKENS = [t for t in os.getenv('PAID_TOKENS', '').split(',') if t]
 
-# Admin token system
-ADMIN_TOKENS = os.getenv('ADMIN_TOKENS', '').split(',')
-PAID_TOKENS = os.getenv('PAID_TOKENS', '').split(',')
 
-def is_admin(request):
-    token = request.headers.get('X-Admin-Token') or (request.json.get('admin_token', '') if request.is_json else '')
-    return token in ADMIN_TOKENS and token != ''
+def _request_token(req):
+    body = req.get_json(force=True, silent=True) or {}
+    return body.get('access_token') or body.get('admin_token') or ''
 
-def get_plan(request):
-    token_data = request.get_json(force=True, silent=True) or {}
-    admin_token = token_data.get('admin_token', '')
-    if admin_token in PAID_TOKENS and admin_token != '':
-        return 'paid'
-    if admin_token in ADMIN_TOKENS and admin_token != '':
+
+def is_admin(req):
+    token = req.headers.get('X-Admin-Token') or _request_token(req)
+    return bool(token) and (token in ADMIN_TOKENS or gng_db.is_admin_token(token))
+
+
+def get_plan(req):
+    """free | paid | admin — paid comes from a valid Stripe access pass."""
+    token = _request_token(req)
+    if not token:
+        return 'free'
+    if token in ADMIN_TOKENS or gng_db.is_admin_token(token):
         return 'admin'
+    if token in PAID_TOKENS or gng_db.is_pass_valid(token):
+        return 'paid'
     return 'free'
 
-# Rate limiting: Multiple layers of protection
-# Format: ip_daily_usage[ip][day_key] = count
-# Format: session_usage[session_id][day_key] = count
-# Format: global_daily_usage[day_key] = count
-ip_daily_usage = defaultdict(lambda: defaultdict(int))
-session_usage = defaultdict(lambda: defaultdict(int))
-global_daily_usage = defaultdict(int)
-request_log = []  # Store all requests for monitoring
-
-# Limits
+# Limits — unchanged from the original free tier. These now protect the
+# Groq free-tier quota (~30 RPM / 6K TPM / 1K req/day) instead of API spend.
 IP_DAILY_LIMIT = 3         # 3 free requests per IP per 24 hours
 SESSION_DAILY_LIMIT = 3    # Backup limit using session cookies
 GLOBAL_DAILY_LIMIT = 200   # Max total requests per day (increased for video launch)
-EMERGENCY_STOP = False     # Manual circuit breaker
+
 
 def get_current_day_key():
     """Get current day as YYYY-MM-DD for tracking"""
-    return datetime.now().strftime("%Y-%m-%d")
+    return gng_db.current_day_key()
+
 
 def get_session_id(request):
     """Get or create session ID from cookies"""
@@ -112,84 +113,128 @@ def get_session_id(request):
         session_id = str(uuid.uuid4())[:16]
     return session_id
 
+
 def check_emergency_stop():
-    """Check if emergency stop is enabled"""
-    global EMERGENCY_STOP
-    return EMERGENCY_STOP
+    """Check if emergency stop is enabled (stored in SQLite, worker-safe)."""
+    return gng_db.emergency_stop_enabled()
 
-def check_global_daily_limit():
-    """Check if global daily limit exceeded. Returns (allowed, remaining)"""
-    day_key = get_current_day_key()
-    current_usage = global_daily_usage[day_key]
 
-    if current_usage >= GLOBAL_DAILY_LIMIT:
-        return False, 0
+def log_request(ip, session_id, endpoint, user_plan, success=True, error=None, served_by=None):
+    """Log request to the SQLite usage log."""
+    try:
+        gng_db.log_usage(ip, session_id, endpoint, user_plan,
+                         served_by=served_by, success=success, error=error)
+    except Exception as exc:
+        logger.warning(f"usage_log write failed: {exc}")
 
-    return True, GLOBAL_DAILY_LIMIT - current_usage
 
-def check_ip_daily_limit(ip):
-    """Check if IP has exceeded daily limit. Returns (allowed, remaining)"""
-    day_key = get_current_day_key()
-    current_usage = ip_daily_usage[ip][day_key]
+def _client_ip(req):
+    ip = req.headers.get('X-Forwarded-For', req.remote_addr)
+    if ip and ',' in ip:
+        # Handle multiple IPs in X-Forwarded-For (take the first one)
+        ip = ip.split(',')[0].strip()
+    return ip
 
-    if current_usage >= IP_DAILY_LIMIT:
-        return False, 0
 
-    return True, IP_DAILY_LIMIT - current_usage
+def _rate_limit_gate(client_ip, session_id, user_plan, endpoint):
+    """Run the free-tier gate. Returns (error_response|None, remaining).
 
-def check_session_daily_limit(session_id):
-    """Check if session has exceeded daily limit. Returns (allowed, remaining)"""
-    day_key = get_current_day_key()
-    current_usage = session_usage[session_id][day_key]
+    Consumes one request from the SQLite counters atomically; callers must
+    refund via gng_db.refund_quota() if generation fails.
+    """
+    if user_plan in ['admin', 'paid']:
+        logger.info(f"{user_plan.title()} access, bypassing rate limits for {client_ip}")
+        log_request(client_ip, session_id, endpoint, user_plan, success=True)
+        return None, 'unlimited'
 
-    if current_usage >= SESSION_DAILY_LIMIT:
-        return False, 0
+    # Check 1: Emergency stop (manual circuit breaker)
+    if check_emergency_stop():
+        logger.warning("Emergency stop activated - service temporarily disabled")
+        log_request(client_ip, session_id, endpoint, user_plan, success=False, error='emergency_stop')
+        return (jsonify({
+            'error': 'service_temporarily_disabled',
+            'message': f"PathBack is temporarily unavailable due to high demand. Please email us at {SUPPORT_EMAIL} and we'll help you directly."
+        }), 503), None
 
-    return True, SESSION_DAILY_LIMIT - current_usage
+    # Checks 2-4: global cap, IP daily limit, session backup limit —
+    # one atomic transaction so multiple workers can't double-spend.
+    allowed, reason, remaining = gng_db.consume_quota(
+        client_ip, session_id, IP_DAILY_LIMIT, SESSION_DAILY_LIMIT, GLOBAL_DAILY_LIMIT)
 
-def log_request(ip, session_id, endpoint, user_plan, success=True, error=None):
-    """Log request for monitoring"""
-    global request_log
+    if not allowed and reason == 'global_limit_exceeded':
+        logger.warning(f"Global daily limit reached: {GLOBAL_DAILY_LIMIT}")
+        log_request(client_ip, session_id, endpoint, user_plan, success=False, error='global_limit_exceeded')
+        return (jsonify({
+            'error': 'daily_limit_reached',
+            'message': f"We've hit our daily response limit but we're here to help. Email us at {SUPPORT_EMAIL} with your situation and we'll respond within 24 hours."
+        }), 429), None
 
-    log_entry = {
-        'timestamp': datetime.now().isoformat(),
-        'ip': ip,
-        'session_id': session_id,
-        'endpoint': endpoint,
-        'user_plan': user_plan,
-        'success': success,
-        'error': error,
-        'day': get_current_day_key()
-    }
+    if not allowed:
+        logger.warning(f"Daily limit exceeded for IP {client_ip} and session {session_id}")
+        log_request(client_ip, session_id, endpoint, user_plan, success=False, error='daily_limit_exceeded')
+        return (jsonify({
+            'error': 'daily_limit_reached',
+            'message': "You've used your free requests for today. Come back tomorrow or upgrade for unlimited access."
+        }), 429), None
 
-    request_log.append(log_entry)
+    # Log successful request before processing
+    log_request(client_ip, session_id, endpoint, user_plan, success=True)
+    return None, remaining
 
-    # Keep only last 1000 requests to prevent memory issues
-    if len(request_log) > 1000:
-        request_log = request_log[-1000:]
 
-def increment_usage(ip, session_id):
-    """Increment usage counters for IP, session, and global daily"""
-    day_key = get_current_day_key()
+LOCAL_LANE_NOTICE = ("Heads up: this response came from PathBack's backup model. "
+                     "It's still useful for drafting, but double-check any law or "
+                     "statute it mentions before relying on it.")
 
-    # Update all counters
-    ip_daily_usage[ip][day_key] += 1
-    session_usage[session_id][day_key] += 1
-    global_daily_usage[day_key] += 1
+AT_CAPACITY_MESSAGE = ("PathBack is at capacity right now. Please try again in a "
+                       "few minutes — this attempt didn't count against your free responses.")
 
-    return IP_DAILY_LIMIT - ip_daily_usage[ip][day_key]
+
+def _run_citation_check(full_text):
+    """Citation-verification pass: groq → local → skip with a logged warning.
+
+    Never blocks a response — any failure just skips verification.
+    """
+    try:
+        lane, raw = gng_inference.complete_chain(
+            gng_inference.verify_chain(),
+            system_prompt="You are a legal citation checker. Respond with JSON only.",
+            messages=[{
+                "role": "user",
+                "content": (
+                    "You are a legal citation checker. Review this response and "
+                    "verify the law citations look real and correctly formatted for "
+                    "the stated state. Return JSON: "
+                    "{\"citations_valid\": true/false, \"concern\": \"string or null\"}"
+                    f"\n\nResponse to check:\n{full_text}"
+                )
+            }],
+            max_tokens=200,
+            temperature=0.1,
+        )
+        cleaned = raw.strip()
+        if cleaned.startswith('```'):
+            cleaned = cleaned.strip('`')
+            cleaned = cleaned[cleaned.find('{'):cleaned.rfind('}') + 1]
+        citation_result = json.loads(cleaned)
+        logger.info(f"Verification ({lane}) - Citations valid: {citation_result.get('citations_valid')}")
+        if not citation_result.get('citations_valid', True):
+            return ("verify this citation with a local legal aid organization "
+                    "before relying on it.")
+    except Exception as verify_error:
+        logger.warning(f"Verification layer failed (skipping, response not blocked): {verify_error}")
+    return None
+
 
 @app.route('/api/guard', methods=['POST'])
 def guard_endpoint():
     """
-    The heart of The Guard Table.
+    The heart of PathBack.
     Takes raw anger and fear, returns legal leverage.
     """
     try:
         logger.info(f"Request received - Content-Type: {request.content_type}")
-        logger.info(f"Raw data: {request.get_data(as_text=True)[:200]}")
         data = request.get_json(force=True, silent=True)
-        logger.info(f"Parsed data: {data}")
         category = data.get('category', '')
         state = data.get('state', 'California')
         rant = data.get('rant', '')
@@ -197,67 +242,16 @@ def guard_endpoint():
         if not rant.strip():
             return jsonify({'error': 'Please tell us what happened'}), 400
 
-        # Multi-layer rate limiting checks
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if client_ip and ',' in client_ip:
-            # Handle multiple IPs in X-Forwarded-For (take the first one)
-            client_ip = client_ip.split(',')[0].strip()
-
-        # Get session ID for backup rate limiting
+        client_ip = _client_ip(request)
         session_id = get_session_id(request)
-
-        # Plan detection and rate limiting
         user_plan = get_plan(request)
         logger.info(f"User plan: {user_plan} for IP: {client_ip}, Session: {session_id}")
 
-        # Initialize response for session cookie
-        response_data = {}
         should_set_session_cookie = not request.cookies.get('guard_session')
 
-        if user_plan in ['admin', 'paid']:
-            logger.info(f"{user_plan.title()} access, bypassing rate limits for {client_ip}")
-            log_request(client_ip, session_id, '/api/guard', user_plan, success=True)
-        else:
-            # Check 1: Emergency stop (manual circuit breaker)
-            if check_emergency_stop():
-                logger.warning("Emergency stop activated - service temporarily disabled")
-                log_request(client_ip, session_id, '/api/guard', user_plan, success=False, error='emergency_stop')
-                return jsonify({
-                    'error': 'service_temporarily_disabled',
-                    'message': "The Guard Table is temporarily unavailable due to high demand. Please email us at thegoodneighborguard@gmail.com and we'll help you directly."
-                }), 503
-
-            # Check 2: Global daily limit (protect against viral traffic)
-            global_allowed, global_remaining = check_global_daily_limit()
-            if not global_allowed:
-                logger.warning(f"Global daily limit reached: {GLOBAL_DAILY_LIMIT}")
-                log_request(client_ip, session_id, '/api/guard', user_plan, success=False, error='global_limit_exceeded')
-                return jsonify({
-                    'error': 'daily_limit_reached',
-                    'message': "We've hit our daily response limit but we're here to help. Email us at thegoodneighborguard@gmail.com with your situation and we'll respond within 24 hours."
-                }), 429
-
-            # Check 3: IP daily limit (3 free requests per day per IP)
-            ip_allowed, ip_remaining = check_ip_daily_limit(client_ip)
-            if not ip_allowed:
-                # Check 4: Session backup limit (in case of shared IP)
-                session_allowed, session_remaining = check_session_daily_limit(session_id)
-                if not session_allowed:
-                    logger.warning(f"Daily limit exceeded for IP {client_ip} and session {session_id}")
-                    log_request(client_ip, session_id, '/api/guard', user_plan, success=False, error='daily_limit_exceeded')
-                    return jsonify({
-                        'error': 'daily_limit_reached',
-                        'message': "You've used your free requests for today. Come back tomorrow or upgrade for unlimited access."
-                    }), 429
-                else:
-                    # IP limit exceeded but session still has requests
-                    logger.info(f"IP {client_ip} exceeded limit, using session {session_id} backup ({session_remaining} remaining)")
-
-            # Log successful request before processing
-            log_request(client_ip, session_id, '/api/guard', user_plan, success=True)
-
-        if not client:
-            return jsonify({'error': 'Service temporarily unavailable'}), 503
+        gate_error, remaining = _rate_limit_gate(client_ip, session_id, user_plan, '/api/guard')
+        if gate_error:
+            return gate_error
 
         # The system prompt - this is the soul of the product
         system_prompt = """# THE HEART
@@ -376,64 +370,64 @@ Situation: {rant}"""
 
         logger.info(f"Processing request for {state} - {category}")
 
+        # Free users ride the zero-cost lanes and NEVER fall back to Claude;
+        # paid/admin users get Claude first, Groq as the noted downgrade.
+        chain = gng_inference.paid_chain() if user_plan in ['admin', 'paid'] else gng_inference.free_chain()
+
         def generate():
             full_text = ''
+            served_by = None
             try:
-                yield f"data: {json.dumps({'type': 'meta', 'plan': user_plan, 'version': VERSION})}\n\n"
+                yield f"data: {json.dumps({'type': 'meta', 'plan': user_plan, 'version': VERSION, 'disclaimer': DISCLAIMER})}\n\n"
 
-                with client.messages.stream(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=2000,
-                    temperature=0.3,
-                    system=[{
-                        "type": "text",
-                        "text": system_prompt,
-                        "cache_control": {"type": "ephemeral"}
-                    }],
-                    messages=[{"role": "user", "content": user_prompt}],
-                ) as stream:
-                    for chunk in stream.text_stream:
-                        if chunk:
-                            full_text += chunk
-                            yield f"data: {json.dumps({'type': 'text', 'chunk': chunk})}\n\n"
-
-                # Citation verification (best-effort, post-stream)
-                citation_warning = None
                 try:
-                    check = client.messages.create(
-                        model="claude-haiku-4-5-20251001",
-                        max_tokens=200,
-                        temperature=0.1,
-                        messages=[{
-                            "role": "user",
-                            "content": (
-                                "You are a legal citation checker. Review this response and "
-                                "verify the law citations look real and correctly formatted for "
-                                "the stated state. Return JSON: "
-                                "{\"citations_valid\": true/false, \"concern\": \"string or null\"}"
-                                f"\n\nResponse to check:\n{full_text}"
-                            )
-                        }]
+                    served_by, stream = gng_inference.open_stream_chain(
+                        chain,
+                        system_prompt=system_prompt,
+                        messages=[{"role": "user", "content": user_prompt}],
+                        max_tokens=2000,
+                        temperature=0.3,
                     )
-                    citation_result = json.loads(check.content[0].text.strip())
-                    if not citation_result.get('citations_valid', True):
-                        citation_warning = (
-                            "verify this citation with a local legal aid organization "
-                            "before relying on it."
-                        )
-                    logger.info(f"Verification - Citations valid: {citation_result.get('citations_valid')}")
-                except Exception as verify_error:
-                    logger.warning(f"Verification layer failed: {verify_error}")
+                except gng_inference.AllLanesFailed as lanes_error:
+                    logger.error(f"All inference lanes failed ({user_plan}): {lanes_error}")
+                    if user_plan == 'free':
+                        gng_db.refund_quota(client_ip, session_id)
+                    log_request(client_ip, session_id, '/api/guard', user_plan,
+                                success=False, error='all_lanes_failed')
+                    yield f"data: {json.dumps({'type': 'error', 'message': AT_CAPACITY_MESSAGE})}\n\n"
+                    return
 
-                if user_plan == 'free':
-                    remaining = increment_usage(client_ip, session_id)
-                else:
-                    remaining = 'unlimited'
+                downgraded = user_plan in ['admin', 'paid'] and chain and served_by != chain[0]
+                if served_by == 'local':
+                    yield f"data: {json.dumps({'type': 'notice', 'message': LOCAL_LANE_NOTICE, 'served_by': served_by})}\n\n"
 
-                yield f"data: {json.dumps({'type': 'done', 'plan': user_plan, 'remaining_responses': remaining, 'citation_warning': citation_warning, 'version': VERSION})}\n\n"
-                logger.info(f"Stream complete. Plan: {user_plan}, IP: {client_ip}, Remaining: {remaining}")
+                for chunk in stream:
+                    if chunk:
+                        full_text += chunk
+                        yield f"data: {json.dumps({'type': 'text', 'chunk': chunk})}\n\n"
+
+                # Citation verification (best-effort, post-stream, never blocking)
+                citation_warning = _run_citation_check(full_text)
+
+                remaining_after = remaining  # consumed atomically up front
+                gng_db.stamp_served_by(None, client_ip, session_id, '/api/guard', served_by)
+
+                done_event = {
+                    'type': 'done',
+                    'plan': user_plan,
+                    'remaining_responses': remaining_after,
+                    'citation_warning': citation_warning,
+                    'version': VERSION,
+                    'served_by': served_by,
+                    'downgraded': downgraded,
+                    'disclaimer': DISCLAIMER,
+                }
+                yield f"data: {json.dumps(done_event)}\n\n"
+                logger.info(f"Stream complete. Plan: {user_plan}, IP: {client_ip}, Served by: {served_by}, Remaining: {remaining_after}")
             except Exception as stream_error:
                 logger.error(f"Stream error: {traceback.format_exc()}")
+                if user_plan == 'free' and not full_text:
+                    gng_db.refund_quota(client_ip, session_id)
                 yield f"data: {json.dumps({'type': 'error', 'message': str(stream_error)})}\n\n"
 
         response = Response(
@@ -469,64 +463,16 @@ def thought_partner_endpoint():
         if not message.strip():
             return jsonify({'error': 'Please share what\'s on your mind'}), 400
 
-        # Rate limiting (same as guard endpoint)
-        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-        if client_ip and ',' in client_ip:
-            client_ip = client_ip.split(',')[0].strip()
-
-        # Get session ID for backup rate limiting
+        client_ip = _client_ip(request)
         session_id = get_session_id(request)
-
         user_plan = get_plan(request)
         logger.info(f"Thought Partner - User plan: {user_plan} for IP: {client_ip}, Session: {session_id}")
 
-        # Initialize response for session cookie
         should_set_session_cookie = not request.cookies.get('guard_session')
 
-        if user_plan in ['admin', 'paid']:
-            logger.info(f"Thought Partner - {user_plan.title()} access, bypassing rate limits for {client_ip}")
-            log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=True)
-        else:
-            # Check 1: Emergency stop (manual circuit breaker)
-            if check_emergency_stop():
-                logger.warning("Emergency stop activated - thought partner temporarily disabled")
-                log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=False, error='emergency_stop')
-                return jsonify({
-                    'error': 'service_temporarily_disabled',
-                    'message': "The Thought Partner is temporarily unavailable due to high demand. Please email us at thegoodneighborguard@gmail.com and we'll help you directly."
-                }), 503
-
-            # Check 2: Global daily limit (protect against viral traffic)
-            global_allowed, global_remaining = check_global_daily_limit()
-            if not global_allowed:
-                logger.warning(f"Global daily limit reached: {GLOBAL_DAILY_LIMIT}")
-                log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=False, error='global_limit_exceeded')
-                return jsonify({
-                    'error': 'daily_limit_reached',
-                    'message': "We've hit our daily response limit but we're here to help. Email us at thegoodneighborguard@gmail.com with your situation and we'll respond within 24 hours."
-                }), 429
-
-            # Check 3: IP daily limit (3 free requests per day per IP)
-            ip_allowed, ip_remaining = check_ip_daily_limit(client_ip)
-            if not ip_allowed:
-                # Check 4: Session backup limit (in case of shared IP)
-                session_allowed, session_remaining = check_session_daily_limit(session_id)
-                if not session_allowed:
-                    logger.warning(f"Daily limit exceeded for IP {client_ip} and session {session_id}")
-                    log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=False, error='daily_limit_exceeded')
-                    return jsonify({
-                        'error': 'daily_limit_reached',
-                        'message': "You've used your free requests for today. Come back tomorrow or upgrade for unlimited access."
-                    }), 429
-                else:
-                    # IP limit exceeded but session still has requests
-                    logger.info(f"IP {client_ip} exceeded limit, using session {session_id} backup ({session_remaining} remaining)")
-
-            # Log successful request before processing
-            log_request(client_ip, session_id, '/api/thought-partner', user_plan, success=True)
-
-        if not client:
-            return jsonify({'error': 'Service temporarily unavailable'}), 503
+        gate_error, remaining = _rate_limit_gate(client_ip, session_id, user_plan, '/api/thought-partner')
+        if gate_error:
+            return gate_error
 
         # Build conversation context
         conversation_context = ""
@@ -577,34 +523,38 @@ You are here to amplify their thinking, not replace it."""
         if conversation_context:
             user_input = f"[Previous conversation context]\n{conversation_context}\n[Current message]\n{message}"
 
-        # Call Claude
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2000,
-            system=system_prompt,
-            messages=[{
-                "role": "user",
-                "content": user_input
-            }]
-        )
+        chain = gng_inference.paid_chain() if user_plan in ['admin', 'paid'] else gng_inference.free_chain()
+        try:
+            served_by, response_text = gng_inference.complete_chain(
+                chain,
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": user_input}],
+                max_tokens=2000,
+                temperature=0.7,
+            )
+        except gng_inference.AllLanesFailed as lanes_error:
+            logger.error(f"Thought Partner - all lanes failed ({user_plan}): {lanes_error}")
+            if user_plan == 'free':
+                gng_db.refund_quota(client_ip, session_id)
+            log_request(client_ip, session_id, '/api/thought-partner', user_plan,
+                        success=False, error='all_lanes_failed')
+            return jsonify({'error': AT_CAPACITY_MESSAGE}), 503
 
-        response_text = response.content[0].text.strip()
+        response_text = response_text.strip()
+        gng_db.stamp_served_by(None, client_ip, session_id, '/api/thought-partner', served_by)
 
-        # Increment usage and add remaining count (only for free users)
         result = {
             'response': response_text,
-            'version': VERSION
+            'version': VERSION,
+            'served_by': served_by,
+            'disclaimer': DISCLAIMER,
+            'remaining_responses': remaining,
+            'plan': user_plan,
         }
+        if served_by == 'local':
+            result['notice'] = LOCAL_LANE_NOTICE
 
-        if user_plan == 'free':
-            remaining_after = increment_usage(client_ip, session_id)
-            result['remaining_responses'] = remaining_after
-        else:
-            result['remaining_responses'] = 'unlimited'
-
-        result['plan'] = user_plan
-
-        logger.info(f"Thought Partner response generated successfully for {client_ip}")
+        logger.info(f"Thought Partner response generated successfully for {client_ip} (served by {served_by})")
 
         # Create response and set session cookie if needed
         response = jsonify(result)
@@ -615,7 +565,6 @@ You are here to amplify their thinking, not replace it."""
         return response
 
     except Exception as e:
-        import traceback
         logger.error(f"Thought Partner ERROR: {traceback.format_exc()}")
         return jsonify({'error': 'I\'m having trouble connecting right now. Could you try rephrasing your thought?'}), 500
 
@@ -624,35 +573,37 @@ def health_check():
     """Health check endpoint for deployment monitoring"""
     return jsonify({
         'status': 'healthy',
-        'service': 'The Guard Table',
+        'service': 'PathBack',
         'version': VERSION,
         'deployed': datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
     })
 
 @app.route('/api/test', methods=['GET'])
 def test():
-    """Test endpoint to check API key and client status"""
+    """Test endpoint to check inference configuration status"""
+    lanes = gng_inference.configured_lanes()
+    has_key = bool(os.getenv('GROQ_API_KEY') or os.getenv('ANTHROPIC_API_KEY'))
     return jsonify({
-        'api_key_set': bool(anthropic_api_key),
-        'client_ready': bool(client),
-        'key_preview': anthropic_api_key[:8] + '...' if anthropic_api_key else 'NOT SET'
+        'api_key_set': has_key,
+        'client_ready': bool(lanes),
+        'lanes': lanes,
+        'free_chain': gng_inference.free_chain(),
+        'paid_chain': gng_inference.paid_chain(),
     })
 
 @app.route('/api/debug', methods=['GET'])
 def debug_test():
-    """Debug endpoint to test Claude API call directly"""
+    """Debug endpoint to test the inference chain directly"""
     try:
-        if not client:
-            return jsonify({'success': False, 'error': 'Claude client not initialized'})
-
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        lane, text = gng_inference.complete_chain(
+            gng_inference.free_chain(),
+            system_prompt="You are a helpful assistant.",
+            messages=[{"role": "user", "content": "Say hello in one word"}],
             max_tokens=100,
-            messages=[{"role": "user", "content": "Say hello in one word"}]
+            temperature=0.3,
         )
-        return jsonify({'success': True, 'response': response.content[0].text})
+        return jsonify({'success': True, 'served_by': lane, 'response': text})
     except Exception as e:
-        import traceback
         return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()})
 
 @app.route('/', methods=['GET'])
@@ -662,28 +613,47 @@ def root():
         return send_file(os.path.join(FRONTEND_BUILD_PATH, 'index.html'))
     else:
         return jsonify({
-            'message': 'The Guard Table API',
-            'description': 'Every company has a system. Now so do you.',
+            'message': 'PathBack API',
+            'description': 'When someone knocks you off course, PathBack helps you stand your ground and get back on your path.',
+            'tagline': 'Truth · Safety · We Got Your Back',
             'endpoints': {
-                '/api/guard': 'POST - Main guard table endpoint',
+                '/api/guard': 'POST - Main PathBack response endpoint',
                 '/health': 'GET - Health check'
             }
         })
+
+@app.route('/success', methods=['GET'])
+@app.route('/cancel', methods=['GET'])
+def stripe_redirect_pages():
+    """Stripe sends customers back here; the React app renders the page.
+
+    (Explicit routes because Flask's static handler shadows the catch-all
+    for paths that aren't real files.)
+    """
+    if IS_PRODUCTION:
+        return send_file(os.path.join(FRONTEND_BUILD_PATH, 'index.html'))
+    return jsonify({'error': 'Frontend not built'}), 404
+
+
+def _admin_key_ok(req):
+    """Admin endpoints stay locked unless GUARD_ADMIN_KEY is configured."""
+    admin_key = os.getenv('GUARD_ADMIN_KEY')
+    return bool(admin_key) and req.headers.get('X-Admin-Key') == admin_key
+
 
 @app.route('/admin/emergency-stop/<action>', methods=['POST'])
 def emergency_stop_control(action):
     """Emergency stop control - admin only (requires special header)"""
     # Simple auth check - require special header
-    if request.headers.get('X-Admin-Key') != os.getenv('GUARD_ADMIN_KEY'):
+    if not _admin_key_ok(request):
         return jsonify({'error': 'Unauthorized'}), 401
 
-    global EMERGENCY_STOP
     if action == 'enable':
-        EMERGENCY_STOP = True
-        logger.critical("EMERGENCY STOP ENABLED - All Guard Table requests blocked")
+        gng_db.set_emergency_stop(True)
+        logger.critical("EMERGENCY STOP ENABLED - All PathBack requests blocked")
         return jsonify({'status': 'Emergency stop ENABLED', 'emergency_stop': True})
     elif action == 'disable':
-        EMERGENCY_STOP = False
+        gng_db.set_emergency_stop(False)
         logger.info("Emergency stop disabled - service resumed")
         return jsonify({'status': 'Emergency stop DISABLED', 'emergency_stop': False})
     else:
@@ -691,16 +661,17 @@ def emergency_stop_control(action):
 
 @app.route('/admin/status', methods=['GET'])
 def admin_status():
-    """Admin status - show current limits and usage"""
-    if request.headers.get('X-Admin-Key') != os.getenv('GUARD_ADMIN_KEY'):
+    """Admin status - show current limits and usage (read from SQLite)"""
+    if not _admin_key_ok(request):
         return jsonify({'error': 'Unauthorized'}), 401
 
     day_key = get_current_day_key()
+    used_today = gng_db.get_count('global', 'global', day_key)
     return jsonify({
-        'emergency_stop': EMERGENCY_STOP,
-        'global_daily_usage': global_daily_usage[day_key],
+        'emergency_stop': gng_db.emergency_stop_enabled(),
+        'global_daily_usage': used_today,
         'global_daily_limit': GLOBAL_DAILY_LIMIT,
-        'global_daily_remaining': GLOBAL_DAILY_LIMIT - global_daily_usage[day_key],
+        'global_daily_remaining': GLOBAL_DAILY_LIMIT - used_today,
         'ip_daily_limit': IP_DAILY_LIMIT,
         'session_daily_limit': SESSION_DAILY_LIMIT
     })
@@ -716,41 +687,36 @@ def admin_usage():
         return jsonify({'error': 'Unauthorized - password required'}), 401
 
     day_key = get_current_day_key()
+    daily_breakdown = gng_db.global_usage_by_day()
 
     # Calculate totals
-    total_requests = sum(global_daily_usage.values())
-    requests_today = global_daily_usage[day_key]
+    total_requests = sum(daily_breakdown.values())
+    requests_today = daily_breakdown.get(day_key, 0)
 
     # Calculate requests this week (last 7 days)
     from datetime import datetime, timedelta
     week_total = 0
     for i in range(7):
         date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-        week_total += global_daily_usage[date]
+        week_total += daily_breakdown.get(date, 0)
 
     # Check if we've hit the threshold
     if total_requests >= 500:
         logger.warning("🚨 PAID TIER THRESHOLD REACHED - Total requests: {}".format(total_requests))
 
-    # Get recent request logs (last 50)
-    recent_logs = request_log[-50:] if request_log else []
-
-    # Calculate unique IPs today
-    unique_ips_today = len(set(ip for ip, day_usage in ip_daily_usage.items() if day_usage.get(day_key, 0) > 0))
-
     return jsonify({
         'total_requests': total_requests,
         'requests_today': requests_today,
         'requests_this_week': week_total,
-        'unique_ips_today': unique_ips_today,
+        'unique_ips_today': gng_db.unique_ips_for_day(day_key),
         'threshold_status': '🚨 PAID TIER THRESHOLD REACHED' if total_requests >= 500 else 'Below threshold',
         'limits': {
             'ip_daily_limit': IP_DAILY_LIMIT,
             'global_daily_limit': GLOBAL_DAILY_LIMIT,
             'threshold': 500
         },
-        'recent_requests': recent_logs,
-        'daily_breakdown': dict(global_daily_usage),
+        'recent_requests': gng_db.recent_logs(50),
+        'daily_breakdown': daily_breakdown,
         'timestamp': datetime.now().isoformat()
     })
 

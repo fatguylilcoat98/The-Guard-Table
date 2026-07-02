@@ -1,5 +1,5 @@
 /*
- * The Guard Table — The Good Neighbor Guard
+ * PathBack — The Good Neighbor Guard
  * Built by Christopher Hughes · Sacramento, CA
  * Created with the help of AI collaborators (Claude · GPT · Gemini · Groq)
  * Truth · Safety · We Got Your Back
@@ -137,7 +137,7 @@ const InputScreen = ({ category, onSubmit, defaultState, defaultInput = '', onBa
           margin: '16px 20px 8px 20px',
           lineHeight: '1.4'
         }}>
-          The Guard Table provides general information to help you understand your situation and communicate more effectively. It is not a lawyer and does not provide legal advice. Laws vary by location and situation. Always verify important information with a licensed attorney or legal aid organization before taking action.
+          A quick, honest note: PathBack provides information and drafting help, not legal advice. For legal advice, consult a licensed attorney. We're here to help you understand your situation and find the right words — and we've got your back.
         </div>
 
         <button

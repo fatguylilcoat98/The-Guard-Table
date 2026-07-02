@@ -1,16 +1,38 @@
-# The Guard Table - Render Deploy Configuration
+# PathBack - Render Deploy Configuration
+# (Primary deployment target is the Docker + Cloudflare Tunnel package —
+# see README. This file keeps Render as an alternative.)
 services:
   - type: web
-    name: guard-table-app
+    name: pathback-app
     env: python
     plan: starter
     buildCommand: "pip install -r requirements.txt && npm install && npm run build-frontend"
-    startCommand: "cd backend && gunicorn -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 app:app"
+    startCommand: "cd backend && gunicorn -b 0.0.0.0:$PORT --timeout 120 --keep-alive 75 --workers 2 app:app"
     healthCheckPath: /health
     envVars:
+      - key: GROQ_API_KEY
+        sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: PRICE_ID_PASS_7DAY
+        sync: false
+      - key: PRICE_ID_SUB_MONTHLY
+        sync: false
+      - key: PRICE_ID_SUB_YEARLY
+        sync: false
+      - key: GUARD_ADMIN_KEY
+        sync: false
+      - key: GUARD_ADMIN_PASSWORD
+        sync: false
+      - key: PATHBACK_DB
+        value: /var/data/pathback.db
+      - key: PUBLIC_BASE_URL
+        sync: false
     disk:
-      name: guard-table-disk
-      mountPath: /tmp
+      name: pathback-disk
+      mountPath: /var/data
       sizeGB: 1

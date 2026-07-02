@@ -1,5 +1,5 @@
 /*
- * The Guard Table — SSE streaming helpers
+ * PathBack — SSE streaming helpers
  */
 
 export async function streamGuardResponse({ body, onEvent, onHttpError }) {
