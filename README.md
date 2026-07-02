@@ -125,7 +125,46 @@ python -m pytest tests/test_pathback.py -v      # new-feature suite (no network 
 PATHBACK_BASE_URL=http://localhost:8787 python tests/test_guard_table.py   # 17-test E2E baseline
 ```
 
-## Deployment — Home Server + Cloudflare Tunnel
+## Deployment — Bare Metal (no Docker)
+
+The app doesn't need Docker — it's a plain Flask/gunicorn server that, in
+production, also serves the compiled React build (it detects
+`frontend/build/` and switches to production mode automatically). On an
+Ubuntu server:
+
+```bash
+# prerequisites (once)
+sudo apt update && sudo apt install -y python3-venv git
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt install -y nodejs
+
+# clone + branch
+git clone https://github.com/fatguylilcoat98/The-Guard-Table.git pathback
+cd pathback
+
+# env
+cp .env.example .env && nano .env       # GROQ_API_KEY at minimum
+
+# backend deps (venv)
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+
+# frontend build (this is what makes Flask serve the UI)
+cd frontend && npm ci && npm run build && cd ..
+
+# run (2 workers; long timeout + keep-alive for SSE streaming)
+sudo mkdir -p /var/lib/pathback && sudo chown $USER /var/lib/pathback
+set -a; source .env; set +a
+PATHBACK_DB=/var/lib/pathback/pathback.db \
+  .venv/bin/gunicorn --chdir backend -b 127.0.0.1:8787 --workers 2 \
+  --timeout 120 --keep-alive 75 app:app
+```
+
+For boot persistence, wrap that gunicorn command in a systemd unit with
+`EnvironmentFile=/path/to/pathback/.env` and
+`Environment=PATHBACK_DB=/var/lib/pathback/pathback.db`. To update:
+`git pull && cd frontend && npm ci && npm run build && cd .. && sudo systemctl restart pathback`.
+
+## Deployment — Docker + Cloudflare Tunnel
 
 ### 1. Build and run
 
