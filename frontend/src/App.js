@@ -48,6 +48,23 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Allow setting the admin token via URL (?admin_token=...) so it can be
+  // enabled on mobile where Ctrl+Shift+A isn't available. The token is
+  // stored in localStorage and stripped from the URL so it isn't left in
+  // browser history or shared by accident.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = params.get('admin_token');
+    if (urlToken) {
+      setAdminToken(urlToken);
+      localStorage.setItem('guardTableAdminToken', urlToken);
+      setAdminPanelCollapsed(true);
+      params.delete('admin_token');
+      const clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      window.history.replaceState({}, '', clean);
+    }
+  }, []);
+
   const handleGetHelp = (mode) => {
     if (mode === 'protection') {
       setCurrentScreen('category');
