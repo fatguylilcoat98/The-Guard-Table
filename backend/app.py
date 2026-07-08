@@ -13,6 +13,7 @@ from flask_cors import CORS
 import os
 import json
 import logging
+import secrets
 import traceback
 from datetime import datetime
 import subprocess
@@ -580,7 +581,11 @@ def health_check():
 
 @app.route('/api/test', methods=['GET'])
 def test():
-    """Test endpoint to check inference configuration status"""
+    """Test endpoint to check inference configuration status. Admin-gated:
+    it reveals which provider keys are configured, so it stays locked in
+    production unless GUARD_ADMIN_KEY is supplied."""
+    if not _admin_key_ok(request):
+        return jsonify({'error': 'Not found'}), 404
     lanes = gng_inference.configured_lanes()
     has_key = bool(os.getenv('GROQ_API_KEY') or os.getenv('ANTHROPIC_API_KEY'))
     return jsonify({
@@ -593,7 +598,11 @@ def test():
 
 @app.route('/api/debug', methods=['GET'])
 def debug_test():
-    """Debug endpoint to test the inference chain directly"""
+    """Debug endpoint to test the inference chain directly. Admin-gated:
+    it triggers a real model call (spends free-tier quota) and returns raw
+    errors, so it's locked unless GUARD_ADMIN_KEY is supplied."""
+    if not _admin_key_ok(request):
+        return jsonify({'error': 'Not found'}), 404
     try:
         lane, text = gng_inference.complete_chain(
             gng_inference.free_chain(),
@@ -653,9 +662,11 @@ def unlock(secret):
 
 
 def _admin_key_ok(req):
-    """Admin endpoints stay locked unless GUARD_ADMIN_KEY is configured."""
+    """Admin endpoints stay locked unless GUARD_ADMIN_KEY is configured.
+    Constant-time compare so the key can't be recovered by timing."""
     admin_key = os.getenv('GUARD_ADMIN_KEY')
-    return bool(admin_key) and req.headers.get('X-Admin-Key') == admin_key
+    supplied = req.headers.get('X-Admin-Key') or ''
+    return bool(admin_key) and secrets.compare_digest(supplied, admin_key)
 
 
 @app.route('/admin/emergency-stop/<action>', methods=['POST'])
@@ -696,11 +707,15 @@ def admin_status():
 @app.route('/admin/usage', methods=['GET'])
 def admin_usage():
     """Admin usage endpoint - detailed usage statistics with password protection"""
-    # Check admin authorization
+    # Fail closed: if no admin password is configured, this endpoint (which
+    # exposes client IPs and the full usage log) stays locked — never fall
+    # back to a guessable default.
+    admin_password = os.getenv('GUARD_ADMIN_PASSWORD')
     auth_header = request.headers.get('Authorization')
-    admin_password = os.getenv('GUARD_ADMIN_PASSWORD', 'admin123')  # Set better password in env
-
-    if not auth_header or auth_header != f'Bearer {admin_password}':
+    if not admin_password:
+        return jsonify({'error': 'Admin usage endpoint is not configured'}), 403
+    if not auth_header or not secrets.compare_digest(
+            auth_header, f'Bearer {admin_password}'):
         return jsonify({'error': 'Unauthorized - password required'}), 401
 
     day_key = get_current_day_key()

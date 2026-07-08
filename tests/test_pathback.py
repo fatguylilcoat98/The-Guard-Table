@@ -195,6 +195,46 @@ def test_admin_status_reads_sqlite(client):
     assert r.get_json()['global_daily_usage'] == 1
 
 
+def test_admin_endpoints_reject_wrong_key(client):
+    # a wrong admin key is unauthorized on every X-Admin-Key endpoint
+    for path in ('/admin/status', '/api/test', '/api/debug'):
+        r = client.get(path, headers={'X-Admin-Key': 'not-the-key'})
+        assert r.status_code in (401, 404), path
+    r = client.post('/admin/emergency-stop/enable',
+                    headers={'X-Admin-Key': 'not-the-key'})
+    assert r.status_code == 401
+
+
+def test_admin_usage_fails_closed_without_password(client, monkeypatch):
+    # No GUARD_ADMIN_PASSWORD configured -> the usage endpoint (IPs + logs)
+    # stays locked. It must NEVER accept a hardcoded default like 'admin123'.
+    monkeypatch.delenv('GUARD_ADMIN_PASSWORD', raising=False)
+    r = client.get('/admin/usage', headers={'Authorization': 'Bearer admin123'})
+    assert r.status_code == 403
+    # even the old default must not work
+    r2 = client.get('/admin/usage',
+                    headers={'Authorization': 'Bearer change-me'})
+    assert r2.status_code == 403
+
+
+def test_admin_usage_accepts_configured_password(client, monkeypatch):
+    monkeypatch.setenv('GUARD_ADMIN_PASSWORD', 'a-strong-secret-value')
+    ok = client.get('/admin/usage',
+                    headers={'Authorization': 'Bearer a-strong-secret-value'})
+    assert ok.status_code == 200
+    bad = client.get('/admin/usage', headers={'Authorization': 'Bearer wrong'})
+    assert bad.status_code == 401
+
+
+def test_debug_endpoints_gated_by_admin_key(client):
+    # unauthenticated debug/test endpoints must not leak config or run models
+    assert client.get('/api/test').status_code == 404
+    assert client.get('/api/debug').status_code == 404
+    # with the key they work
+    assert client.get('/api/test',
+                      headers={'X-Admin-Key': 'test-admin-key'}).status_code == 200
+
+
 # ── JOB 5: disclaimer ───────────────────────────────────────────────────
 
 DISCLAIMER = ('PathBack provides information and drafting help, not legal advice. '
